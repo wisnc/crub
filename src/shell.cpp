@@ -3,9 +3,6 @@
 #include <stdlib.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
-#include <Preferences.h>
-
-static Preferences aliasPrefs;
 
 static const char* subtypeName(uint8_t type, uint8_t subtype) {
     if (type == ESP_PARTITION_TYPE_APP) {
@@ -419,10 +416,6 @@ void Shell::cmdErase(const char* args) {
         return;
     }
 
-    if (p->type == ESP_PARTITION_TYPE_DATA && p->subtype == ESP_PARTITION_SUBTYPE_DATA_NVS) {
-        _con->print("warning: aliases will be lost", TFT_YELLOW);
-    }
-
     char msg[40];
     snprintf(msg, sizeof(msg), "erasing %s (%dK)...", p->label, (int)(p->size / 1024));
     _con->print(msg, TFT_YELLOW);
@@ -647,10 +640,8 @@ void Shell::cmdFlash(const char* args) {
 
     const char* fname = strrchr(path, '/');
     fname = fname ? fname + 1 : path;
-    Preferences fwPrefs;
-    fwPrefs.begin("fwinfo", false);
-    fwPrefs.putString("name", fname);
-    fwPrefs.end();
+    File fwf = SD.open("/.crub_fw", FILE_WRITE);
+    if (fwf) { fwf.print(fname); fwf.close(); }
 
     _con->print("flash complete", TFT_GREEN);
     _con->print("type 'launch' to boot", TFT_GREEN);
@@ -698,35 +689,32 @@ void Shell::cmdReboot() {
 }
 
 void Shell::loadAliases() {
-    aliasPrefs.begin("aliases", true);
-    _aliasCount = aliasPrefs.getInt("count", 0);
-    if (_aliasCount > MAX_ALIASES) _aliasCount = MAX_ALIASES;
-    for (int i = 0; i < _aliasCount; i++) {
-        char nkey[8], ckey[8];
-        snprintf(nkey, sizeof(nkey), "n%d", i);
-        snprintf(ckey, sizeof(ckey), "c%d", i);
-        String n = aliasPrefs.getString(nkey, "");
-        String c = aliasPrefs.getString(ckey, "");
-        strncpy(_aliases[i].name, n.c_str(), 15);
-        _aliases[i].name[15] = '\0';
-        strncpy(_aliases[i].cmd, c.c_str(), 63);
-        _aliases[i].cmd[63] = '\0';
+    _aliasCount = 0;
+    File f = SD.open("/.crub_aliases", FILE_READ);
+    if (!f) return;
+    while (f.available() && _aliasCount < MAX_ALIASES) {
+        String n = f.readStringUntil('\n');
+        if (!f.available()) break;
+        String c = f.readStringUntil('\n');
+        n.trim(); c.trim();
+        if (n.length() == 0) break;
+        strncpy(_aliases[_aliasCount].name, n.c_str(), 15);
+        _aliases[_aliasCount].name[15] = '\0';
+        strncpy(_aliases[_aliasCount].cmd, c.c_str(), 63);
+        _aliases[_aliasCount].cmd[63] = '\0';
+        _aliasCount++;
     }
-    aliasPrefs.end();
+    f.close();
 }
 
 void Shell::saveAliases() {
-    aliasPrefs.begin("aliases", false);
-    aliasPrefs.clear();
-    aliasPrefs.putInt("count", _aliasCount);
+    File f = SD.open("/.crub_aliases", FILE_WRITE);
+    if (!f) return;
     for (int i = 0; i < _aliasCount; i++) {
-        char nkey[8], ckey[8];
-        snprintf(nkey, sizeof(nkey), "n%d", i);
-        snprintf(ckey, sizeof(ckey), "c%d", i);
-        aliasPrefs.putString(nkey, _aliases[i].name);
-        aliasPrefs.putString(ckey, _aliases[i].cmd);
+        f.println(_aliases[i].name);
+        f.println(_aliases[i].cmd);
     }
-    aliasPrefs.end();
+    f.close();
 }
 
 const char* Shell::resolveAlias(const char* name) {

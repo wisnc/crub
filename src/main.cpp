@@ -3,7 +3,6 @@
 #include <SD.h>
 #include <Wire.h>
 #include <esp_ota_ops.h>
-#include <Preferences.h>
 #include "console.h"
 #include "shell.h"
 
@@ -74,7 +73,7 @@ static void showBootScreen() {
     }
 
     M5.Display.setTextColor(M5.Display.color565(60, 60, 80), TFT_BLACK);
-    const char* ver = "v1.7";
+    const char* ver = "v1.8";
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, labelY + 14);
     M5.Display.print(ver);
 
@@ -95,10 +94,11 @@ void setup() {
     showBootScreen();
 
     con.init();
-    shell.init(&con);
 
     SPI.begin(40, 39, 14, 12);
     if (SD.begin(12, SPI, 25000000)) sdReady = true;
+
+    shell.init(&con);
 
     Wire.begin(GROVE_SDA, GROVE_SCL, 400000U);
     Wire.beginTransmission(SCROLL_ADDR);
@@ -109,7 +109,7 @@ void setup() {
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
     if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
 
-    con.print("CRUB v1.7", TFT_CYAN);
+    con.print("CRUB v1.8", TFT_CYAN);
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running) {
@@ -124,15 +124,17 @@ void setup() {
     if (ota) {
         uint8_t magic;
         if (esp_partition_read(ota, 0, &magic, 1) == ESP_OK && magic == 0xE9) {
-            Preferences fwPrefs;
-            fwPrefs.begin("fwinfo", true);
-            String fname = fwPrefs.getString("name", "");
-            fwPrefs.end();
             char msg[48];
-            if (fname.length() > 0)
-                snprintf(msg, sizeof(msg), "ota_0: %s", fname.c_str());
-            else
+            File fwf = SD.open("/.crub_fw", FILE_READ);
+            if (fwf && fwf.size() > 0 && fwf.size() < 40) {
+                char fname[40] = {};
+                fwf.readBytes(fname, fwf.size());
+                fwf.close();
+                snprintf(msg, sizeof(msg), "ota_0: %s", fname);
+            } else {
+                if (fwf) fwf.close();
                 snprintf(msg, sizeof(msg), "ota_0: has firmware");
+            }
             con.print(msg, TFT_GREEN);
         } else {
             char msg[48];
