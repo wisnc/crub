@@ -1,0 +1,79 @@
+#pragma once
+#include "console.h"
+#include <SD.h>
+
+class Shell {
+public:
+    void init(Console* con);
+    void process(const char* cmdLine);
+
+    void tabComplete(Console* con);
+    void tabReset();
+
+private:
+    Console* _con;
+    char _cwd[256];
+
+    void resolvePath(const char* input, char* out, int outSize);
+
+    void cmdLs(const char* args);
+    void cmdCd(const char* args);
+    void cmdPwd();
+    void cmdMkdir(const char* args);
+    void cmdRmdir(const char* args);
+    void cmdRm(const char* args);
+    void cmdMv(const char* args);
+    void cmdCp(const char* args);
+    void cmdTouch(const char* args);
+    void cmdCat(const char* args);
+    void cmdClear();
+    void cmdHelp();
+
+    void cmdFlash(const char* args);
+    void cmdLaunch();
+    void cmdReboot();
+    void cmdPartInfo();
+    void cmdErase(const char* args);
+
+    struct Alias { char name[16]; char cmd[64]; };
+    static const int MAX_ALIASES = 16;
+    Alias _aliases[MAX_ALIASES];
+    int _aliasCount = 0;
+    void cmdAlias(const char* args);
+    void cmdUnalias(const char* args);
+    void loadAliases();
+    void saveAliases();
+    const char* resolveAlias(const char* name);
+
+    struct BinPartEntry {
+        uint8_t type;
+        uint8_t subtype;
+        uint32_t offset;
+        uint32_t size;
+        char label[17];
+    };
+    static const int MAX_BIN_PARTS = 8;
+    int parseBinPartTable(File& f, BinPartEntry* entries, int maxEntries);
+    int findBinPart(BinPartEntry* entries, int count, uint8_t type, uint8_t subtype);
+    bool writeFileRegion(File& f, const esp_partition_t* part, uint32_t fileOffset, uint32_t size);
+
+    struct FlashPart {
+        char label[17];
+        uint32_t offset;
+        uint32_t size;
+        uint8_t type;
+        uint8_t subtype;
+    };
+    static const int MAX_PARTS = 16;
+    int collectPartitions(FlashPart* out, int max);
+    void drawPartitionMap();
+
+    static const int MAX_TAB = 32;
+    char _tabMatches[MAX_TAB][64];
+    int _tabCount = 0;
+    int _tabIdx = 0;
+    bool _tabActive = false;
+    int _tabPrefixEnd = 0;
+
+    const char* parseArg(const char* input, char* arg, int argSize);
+};
