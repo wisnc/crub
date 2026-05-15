@@ -28,16 +28,35 @@ static const char* subtypeName(uint8_t type, uint8_t subtype) {
 
 static uint16_t partColor(uint8_t type, uint8_t subtype) {
     if (type == ESP_PARTITION_TYPE_APP) {
-        return (subtype == 0x20) ? TFT_GREEN : TFT_CYAN;
+        return (subtype == 0x20) ? COL_OK : COL_INFO;
     }
     switch (subtype) {
-        case 0x02: return TFT_YELLOW;
-        case 0x00: return TFT_ORANGE;
-        case 0x81: return TFT_MAGENTA;
-        case 0x82: return 0x5DDF;
-        case 0x03: return TFT_RED;
-        default:   return TFT_WHITE;
+        case 0x02: return COL_WARN;
+        case 0x00: return COL_DIM;
+        case 0x81: return C565(200, 100, 200);
+        case 0x82: return C565(100, 180, 255);
+        case 0x03: return COL_RED;
+        default:   return COL_ORANGE;
     }
+}
+
+static uint32_t getAppImageSize(const esp_partition_t* part) {
+    uint8_t hdr[24];
+    if (esp_partition_read(part, 0, hdr, 24) != ESP_OK) return 0;
+    if (hdr[0] != 0xE9) return 0;
+    uint8_t segCount = hdr[1];
+    uint32_t offset = 24;
+    for (int i = 0; i < segCount; i++) {
+        uint8_t segHdr[8];
+        if (esp_partition_read(part, offset, segHdr, 8) != ESP_OK) return 0;
+        uint32_t dataLen;
+        memcpy(&dataLen, &segHdr[4], 4);
+        offset += 8 + dataLen;
+    }
+    offset += 1;
+    offset = (offset + 15) & ~15;
+    offset += 32;
+    return offset;
 }
 
 void Shell::init(Console* con) {
@@ -121,6 +140,7 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "cp") == 0)       cmdCp(args);
     else if (strcmp(cmd, "touch") == 0)    cmdTouch(args);
     else if (strcmp(cmd, "cat") == 0)      cmdCat(args);
+    else if (strcmp(cmd, "edit") == 0)     cmdEdit(args);
     else if (strcmp(cmd, "clear") == 0)    cmdClear();
     else if (strcmp(cmd, "flash") == 0)    cmdFlash(args);
     else if (strcmp(cmd, "launch") == 0)   cmdLaunch();
@@ -133,7 +153,7 @@ void Shell::process(const char* cmdLine) {
     else {
         char msg[48];
         snprintf(msg, sizeof(msg), "%s: not found", cmd);
-        _con->print(msg, TFT_RED);
+        _con->print(msg, COL_RED);
     }
 }
 
@@ -144,7 +164,7 @@ void Shell::cmdLs(const char* args) {
 
     File dir = SD.open(path);
     if (!dir || !dir.isDirectory()) {
-        _con->print("not a directory", TFT_RED);
+        _con->print("not a directory", COL_RED);
         if (dir) dir.close();
         return;
     }
@@ -164,7 +184,7 @@ void Shell::cmdLs(const char* args) {
             else
                 snprintf(line, sizeof(line), " %s  %.1fM", entry.name(), sz/1048576.0f);
         }
-        _con->print(line, entry.isDirectory() ? TFT_CYAN : TFT_GREEN);
+        _con->print(line, entry.isDirectory() ? COL_INFO : COL_ORANGE);
         count++;
         entry = dir.openNextFile();
     }
@@ -172,7 +192,7 @@ void Shell::cmdLs(const char* args) {
 
     char summary[32];
     snprintf(summary, sizeof(summary), "%d items", count);
-    _con->print(summary, M5.Display.color565(100, 100, 120));
+    _con->print(summary, COL_ECHO);
 }
 
 void Shell::cmdCd(const char* args) {
@@ -187,7 +207,7 @@ void Shell::cmdCd(const char* args) {
     resolvePath(args, path, sizeof(path));
     File dir = SD.open(path);
     if (!dir || !dir.isDirectory()) {
-        _con->print("not a directory", TFT_RED);
+        _con->print("not a directory", COL_RED);
         if (dir) dir.close();
         return;
     }
@@ -195,50 +215,50 @@ void Shell::cmdCd(const char* args) {
     strncpy(_cwd, path, sizeof(_cwd) - 1);
 }
 
-void Shell::cmdPwd() { _con->print(_cwd, TFT_GREEN); }
+void Shell::cmdPwd() { _con->print(_cwd, COL_ORANGE); }
 
 void Shell::cmdMkdir(const char* args) {
-    if (!*args) { _con->print("usage: mkdir <name>", TFT_RED); return; }
+    if (!*args) { _con->print("usage: mkdir <name>", COL_RED); return; }
     char path[256]; resolvePath(args, path, sizeof(path));
-    _con->print(SD.mkdir(path) ? "created" : "mkdir failed", SD.mkdir(path) ? TFT_GREEN : TFT_RED);
+    _con->print(SD.mkdir(path) ? "created" : "mkdir failed", SD.mkdir(path) ? COL_OK : COL_RED);
 }
 
 void Shell::cmdRmdir(const char* args) {
-    if (!*args) { _con->print("usage: rmdir <name>", TFT_RED); return; }
+    if (!*args) { _con->print("usage: rmdir <name>", COL_RED); return; }
     char path[256]; resolvePath(args, path, sizeof(path));
-    _con->print(SD.rmdir(path) ? "removed" : "rmdir failed", TFT_GREEN);
+    _con->print(SD.rmdir(path) ? "removed" : "rmdir failed", COL_OK);
 }
 
 void Shell::cmdRm(const char* args) {
-    if (!*args) { _con->print("usage: rm <file>", TFT_RED); return; }
+    if (!*args) { _con->print("usage: rm <file>", COL_RED); return; }
     char path[256]; resolvePath(args, path, sizeof(path));
-    _con->print(SD.remove(path) ? "deleted" : "rm failed", SD.remove(path) ? TFT_GREEN : TFT_RED);
+    _con->print(SD.remove(path) ? "deleted" : "rm failed", SD.remove(path) ? COL_OK : COL_RED);
 }
 
 void Shell::cmdMv(const char* args) {
     char src[128], dst[128];
     const char* rest = parseArg(args, src, sizeof(src));
     parseArg(rest, dst, sizeof(dst));
-    if (!src[0] || !dst[0]) { _con->print("usage: mv <src> <dst>", TFT_RED); return; }
+    if (!src[0] || !dst[0]) { _con->print("usage: mv <src> <dst>", COL_RED); return; }
     char sp[256], dp[256];
     resolvePath(src, sp, sizeof(sp));
     resolvePath(dst, dp, sizeof(dp));
-    _con->print(SD.rename(sp, dp) ? "moved" : "mv failed", TFT_GREEN);
+    _con->print(SD.rename(sp, dp) ? "moved" : "mv failed", COL_OK);
 }
 
 void Shell::cmdCp(const char* args) {
     char src[128], dst[128];
     const char* rest = parseArg(args, src, sizeof(src));
     parseArg(rest, dst, sizeof(dst));
-    if (!src[0] || !dst[0]) { _con->print("usage: cp <src> <dst>", TFT_RED); return; }
+    if (!src[0] || !dst[0]) { _con->print("usage: cp <src> <dst>", COL_RED); return; }
     char sp[256], dp[256];
     resolvePath(src, sp, sizeof(sp));
     resolvePath(dst, dp, sizeof(dp));
 
     File in = SD.open(sp, FILE_READ);
-    if (!in) { _con->print("cannot open source", TFT_RED); return; }
+    if (!in) { _con->print("cannot open source", COL_RED); return; }
     File out = SD.open(dp, FILE_WRITE);
-    if (!out) { _con->print("cannot create dest", TFT_RED); in.close(); return; }
+    if (!out) { _con->print("cannot create dest", COL_RED); in.close(); return; }
 
     static uint8_t buf[512];
     size_t total = 0;
@@ -251,23 +271,23 @@ void Shell::cmdCp(const char* args) {
     in.close(); out.close();
     char msg[48];
     snprintf(msg, sizeof(msg), "copied %d bytes", (int)total);
-    _con->print(msg, TFT_GREEN);
+    _con->print(msg, COL_OK);
 }
 
 void Shell::cmdTouch(const char* args) {
-    if (!*args) { _con->print("usage: touch <file>", TFT_RED); return; }
+    if (!*args) { _con->print("usage: touch <file>", COL_RED); return; }
     char path[256]; resolvePath(args, path, sizeof(path));
     File f = SD.open(path, FILE_WRITE);
-    if (f) { f.close(); _con->print("created", TFT_GREEN); }
-    else _con->print("touch failed", TFT_RED);
+    if (f) { f.close(); _con->print("created", COL_OK); }
+    else _con->print("touch failed", COL_RED);
 }
 
 void Shell::cmdCat(const char* args) {
-    if (!*args) { _con->print("usage: cat <file>", TFT_RED); return; }
+    if (!*args) { _con->print("usage: cat <file>", COL_RED); return; }
     char path[256]; resolvePath(args, path, sizeof(path));
     File f = SD.open(path, FILE_READ);
-    if (!f) { _con->print("cannot open file", TFT_RED); return; }
-    if (f.isDirectory()) { _con->print("is a directory", TFT_RED); f.close(); return; }
+    if (!f) { _con->print("cannot open file", COL_RED); return; }
+    if (f.isDirectory()) { _con->print("is a directory", COL_RED); f.close(); return; }
 
     char line[128];
     int lineCount = 0;
@@ -275,32 +295,47 @@ void Shell::cmdCat(const char* args) {
         int len = f.readBytesUntil('\n', line, sizeof(line) - 1);
         line[len] = '\0';
         if (len > 0 && line[len-1] == '\r') line[len-1] = '\0';
-        _con->print(line, TFT_WHITE);
+        _con->print(line, COL_ORANGE);
         lineCount++;
     }
-    if (f.available()) _con->print("... (truncated)", M5.Display.color565(100, 100, 120));
+    if (f.available()) _con->print("... (truncated)", COL_ECHO);
     f.close();
 }
 
 void Shell::cmdClear() { _con->init(); }
 
+void Shell::cmdEdit(const char* args) {
+    if (!*args) { _con->print("usage: edit <file>", COL_RED); return; }
+    char path[256];
+    resolvePath(args, path, sizeof(path));
+    static Editor editor;
+    if (editor.open(path)) {
+        editor.run();
+        _con->init();
+        _con->print("editor closed", COL_DIM);
+        _con->redraw();
+    } else {
+        _con->print("cannot open file", COL_RED);
+    }
+}
+
 void Shell::cmdHelp() {
-    _con->print("file:", TFT_CYAN);
-    _con->print(" ls cd pwd mkdir rmdir", TFT_CYAN);
-    _con->print(" rm mv cp touch cat", TFT_CYAN);
-    _con->print("ota:", TFT_CYAN);
-    _con->print(" flash <file.bin>", TFT_CYAN);
-    _con->print(" launch  reboot", TFT_CYAN);
-    _con->print(" partinfo", TFT_CYAN);
-    _con->print(" erase <partition>", TFT_CYAN);
-    _con->print("alias:", TFT_CYAN);
-    _con->print(" alias [name] [\"cmd\"]", TFT_CYAN);
-    _con->print(" unalias <name>", TFT_CYAN);
-    _con->print("chain: cmd1 && cmd2", TFT_CYAN);
-    _con->print("keys:", TFT_CYAN);
-    _con->print(" Tab=autocomplete", TFT_CYAN);
-    _con->print(" Fn+;=up Fn+.=down", TFT_CYAN);
-    _con->print("other: clear  help", TFT_CYAN);
+    _con->print("file:", COL_INFO);
+    _con->print(" ls cd pwd mkdir rmdir", COL_INFO);
+    _con->print(" rm mv cp touch cat edit", COL_INFO);
+    _con->print("ota:", COL_INFO);
+    _con->print(" flash <file.bin>", COL_INFO);
+    _con->print(" launch  reboot", COL_INFO);
+    _con->print(" partinfo", COL_INFO);
+    _con->print(" erase <partition>", COL_INFO);
+    _con->print("alias:", COL_INFO);
+    _con->print(" alias [name] [\"cmd\"]", COL_INFO);
+    _con->print(" unalias <name>", COL_INFO);
+    _con->print("chain: cmd1 && cmd2", COL_INFO);
+    _con->print("keys:", COL_INFO);
+    _con->print(" Tab=autocomplete", COL_INFO);
+    _con->print(" Fn+;=up Fn+.=down", COL_INFO);
+    _con->print("other: clear  help", COL_INFO);
 }
 
 int Shell::collectPartitions(FlashPart* out, int max) {
@@ -338,7 +373,7 @@ void Shell::drawPartitionMap() {
     const int barCols = Console::COLS;
 
     uint16_t colors[Console::COLS];
-    uint16_t gapColor = M5.Display.color565(40, 40, 40);
+    uint16_t gapColor = C565(25, 25, 25);
     for (int i = 0; i < barCols; i++) colors[i] = gapColor;
 
     for (int i = 0; i < count; i++) {
@@ -353,32 +388,13 @@ void Shell::drawPartitionMap() {
     _con->printBar(colors, barCols);
 }
 
-static uint32_t getAppImageSize(const esp_partition_t* part) {
-    uint8_t hdr[24];
-    if (esp_partition_read(part, 0, hdr, 24) != ESP_OK) return 0;
-    if (hdr[0] != 0xE9) return 0;
-    uint8_t segCount = hdr[1];
-    uint32_t offset = 24;
-    for (int i = 0; i < segCount; i++) {
-        uint8_t segHdr[8];
-        if (esp_partition_read(part, offset, segHdr, 8) != ESP_OK) return 0;
-        uint32_t dataLen;
-        memcpy(&dataLen, &segHdr[4], 4);
-        offset += 8 + dataLen;
-    }
-    offset += 1;
-    offset = (offset + 15) & ~15;
-    offset += 32;
-    return offset;
-}
-
 void Shell::cmdPartInfo() {
     FlashPart parts[MAX_PARTS];
     int count = collectPartitions(parts, MAX_PARTS);
 
     drawPartitionMap();
 
-    _con->print("", TFT_BLACK);
+    _con->print("", COL_BG);
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     char msg[48];
@@ -416,7 +432,7 @@ void Shell::cmdErase(const char* args) {
     char target[17];
     parseArg(args, target, sizeof(target));
     if (!target[0]) {
-        _con->print("usage: erase <partition>", TFT_RED);
+        _con->print("usage: erase <partition>", COL_RED);
         return;
     }
 
@@ -427,24 +443,24 @@ void Shell::cmdErase(const char* args) {
     if (!p) {
         char msg[32];
         snprintf(msg, sizeof(msg), "%s: not found", target);
-        _con->print(msg, TFT_RED);
+        _con->print(msg, COL_RED);
         return;
     }
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running && p->address == running->address) {
-        _con->print("cannot erase running partition", TFT_RED);
+        _con->print("cannot erase running partition", COL_RED);
         return;
     }
 
     char msg[40];
     snprintf(msg, sizeof(msg), "erasing %s (%dK)...", p->label, (int)(p->size / 1024));
-    _con->print(msg, TFT_YELLOW);
+    _con->print(msg, COL_WARN);
     _con->redraw();
 
     esp_err_t err = esp_partition_erase_range(p, 0, p->size);
     _con->print(err == ESP_OK ? "erased" : "erase failed",
-                err == ESP_OK ? TFT_GREEN : TFT_RED);
+                err == ESP_OK ? COL_OK : COL_RED);
 }
 
 int Shell::parseBinPartTable(File& f, BinPartEntry* entries, int maxEntries) {
@@ -503,7 +519,7 @@ bool Shell::writeFileRegion(File& f, const esp_partition_t* part, uint32_t fileO
         err = esp_partition_write(part, written, buf, padded);
         if (err != ESP_OK) {
             snprintf(msg, sizeof(msg), "write: %s", esp_err_to_name(err));
-            _con->print(msg, TFT_RED);
+            _con->print(msg, COL_RED);
             return false;
         }
 
@@ -511,7 +527,7 @@ bool Shell::writeFileRegion(File& f, const esp_partition_t* part, uint32_t fileO
         int pct = (int)(written * 100 / size);
         if (pct / 10 != lastPct / 10) {
             snprintf(msg, sizeof(msg), "%d%%", pct);
-            _con->print(msg, TFT_YELLOW);
+            _con->print(msg, COL_WARN);
             _con->redraw();
             lastPct = pct;
         }
@@ -520,20 +536,20 @@ bool Shell::writeFileRegion(File& f, const esp_partition_t* part, uint32_t fileO
 }
 
 void Shell::cmdFlash(const char* args) {
-    if (*args == '\0') { _con->print("usage: flash <file.bin>", TFT_RED); return; }
+    if (*args == '\0') { _con->print("usage: flash <file.bin>", COL_RED); return; }
 
     char path[256];
     resolvePath(args, path, sizeof(path));
 
     File bin = SD.open(path, FILE_READ);
-    if (!bin) { _con->print("cannot open file", TFT_RED); return; }
+    if (!bin) { _con->print("cannot open file", COL_RED); return; }
 
     size_t fileSize = bin.size();
-    if (fileSize == 0) { _con->print("empty file", TFT_RED); bin.close(); return; }
+    if (fileSize == 0) { _con->print("empty file", COL_RED); bin.close(); return; }
 
     const esp_partition_t* ota = esp_partition_find_first(
         ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-    if (!ota) { _con->print("ota_0 not found", TFT_RED); bin.close(); return; }
+    if (!ota) { _con->print("ota_0 not found", COL_RED); bin.close(); return; }
 
     char msg[48];
 
@@ -553,14 +569,14 @@ void Shell::cmdFlash(const char* args) {
 
     if (ptMagic == 0xAA && fileSize > 0x10000) {
         isMerged = true;
-        _con->print("type: merged binary", M5.Display.color565(80, 80, 100));
+        _con->print("type: merged binary", COL_DIM);
 
         BinPartEntry parts[MAX_BIN_PARTS];
         int partCount = parseBinPartTable(bin, parts, MAX_BIN_PARTS);
 
         if (partCount > 0) {
             snprintf(msg, sizeof(msg), "found %d partitions", partCount);
-            _con->print(msg, M5.Display.color565(80, 80, 100));
+            _con->print(msg, COL_DIM);
 
             int appIdx = findBinPart(parts, partCount, 0, 0x10);
             if (appIdx < 0) appIdx = findBinPart(parts, partCount, 0, 0x00);
@@ -579,7 +595,7 @@ void Shell::cmdFlash(const char* args) {
                          parts[appIdx].label,
                          (unsigned long)appOffset,
                          (int)(appSize / 1024));
-                _con->print(msg, M5.Display.color565(80, 80, 100));
+                _con->print(msg, COL_DIM);
 
                 if (appOffset + appSize > fileSize) {
                     appSize = fileSize - appOffset;
@@ -596,7 +612,7 @@ void Shell::cmdFlash(const char* args) {
                 spiffsSize = parts[spIdx].size;
                 snprintf(msg, sizeof(msg), "spiffs: %dK found",
                          (int)(spiffsSize / 1024));
-                _con->print(msg, TFT_CYAN);
+                _con->print(msg, COL_INFO);
             }
         } else {
             appOffset = 0x10000;
@@ -607,11 +623,11 @@ void Shell::cmdFlash(const char* args) {
         bin.seek(0);
         bin.read(&magic0, 1);
         if (magic0 == 0xE9) {
-            _con->print("type: raw app", M5.Display.color565(80, 80, 100));
+            _con->print("type: raw app", COL_DIM);
             appOffset = 0;
             appSize = fileSize;
         } else {
-            _con->print("not a valid binary", TFT_RED);
+            _con->print("not a valid binary", COL_RED);
             bin.close();
             return;
         }
@@ -620,21 +636,21 @@ void Shell::cmdFlash(const char* args) {
     if (appSize > ota->size) {
         snprintf(msg, sizeof(msg), "app too large (%dK>%dK)",
                  (int)(appSize/1024), (int)(ota->size/1024));
-        _con->print(msg, TFT_RED);
+        _con->print(msg, COL_RED);
         bin.close();
         return;
     }
 
     snprintf(msg, sizeof(msg), "flashing %dK to ota_0...", (int)(appSize/1024));
-    _con->print(msg, TFT_YELLOW);
+    _con->print(msg, COL_WARN);
     _con->redraw();
 
     if (!writeFileRegion(bin, ota, appOffset, appSize)) {
-        _con->print("app flash failed", TFT_RED);
+        _con->print("app flash failed", COL_RED);
         bin.close();
         return;
     }
-    _con->print("app: ok", TFT_GREEN);
+    _con->print("app: ok", COL_OK);
 
     if (hasSpiffs) {
         const esp_partition_t* spPart = esp_partition_find_first(
@@ -644,16 +660,16 @@ void Shell::cmdFlash(const char* args) {
             if (writeSize > spPart->size) writeSize = spPart->size;
 
             snprintf(msg, sizeof(msg), "writing spiffs %dK...", (int)(writeSize/1024));
-            _con->print(msg, TFT_YELLOW);
+            _con->print(msg, COL_WARN);
             _con->redraw();
 
             if (writeFileRegion(bin, spPart, spiffsFileOffset, writeSize)) {
-                _con->print("spiffs: ok", TFT_GREEN);
+                _con->print("spiffs: ok", COL_OK);
             } else {
-                _con->print("spiffs: failed", TFT_RED);
+                _con->print("spiffs: failed", COL_RED);
             }
         } else {
-            _con->print("no spiffs partition", TFT_YELLOW);
+            _con->print("no spiffs partition", COL_WARN);
         }
     }
 
@@ -664,19 +680,19 @@ void Shell::cmdFlash(const char* args) {
     File fwf = SD.open("/.crub_fw", FILE_WRITE);
     if (fwf) { fwf.print(fname); fwf.close(); }
 
-    _con->print("flash complete", TFT_GREEN);
-    _con->print("type 'launch' to boot", TFT_GREEN);
+    _con->print("flash complete", COL_OK);
+    _con->print("type 'launch' to boot", COL_OK);
     _con->redraw();
 }
 
 void Shell::cmdLaunch() {
     const esp_partition_t* ota = esp_partition_find_first(
         ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-    if (!ota) { _con->print("ota_0 not found", TFT_RED); return; }
+    if (!ota) { _con->print("ota_0 not found", COL_RED); return; }
 
     uint8_t magic;
     if (esp_partition_read(ota, 0, &magic, 1) != ESP_OK || magic != 0xE9) {
-        _con->print("nothing flashed", TFT_RED);
+        _con->print("nothing flashed", COL_RED);
         return;
     }
 
@@ -684,12 +700,12 @@ void Shell::cmdLaunch() {
     if (err != ESP_OK) {
         char msg[48];
         snprintf(msg, sizeof(msg), "set_boot: %s", esp_err_to_name(err));
-        _con->print(msg, TFT_RED);
+        _con->print(msg, COL_RED);
         return;
     }
 
-    _con->print("launching...", TFT_YELLOW);
-    _con->print("reset btn = back here", M5.Display.color565(80, 80, 100));
+    _con->print("launching...", COL_WARN);
+    _con->print("reset btn = back here", COL_DIM);
     _con->redraw();
     delay(800);
 
@@ -703,7 +719,7 @@ void Shell::cmdReboot() {
         esp_partition_erase_range(otadata, 0, otadata->size);
     }
 
-    _con->print("rebooting...", TFT_YELLOW);
+    _con->print("rebooting...", COL_WARN);
     _con->redraw();
     delay(300);
     esp_restart();
@@ -747,11 +763,11 @@ const char* Shell::resolveAlias(const char* name) {
 
 void Shell::cmdAlias(const char* args) {
     if (*args == '\0') {
-        if (_aliasCount == 0) { _con->print("no aliases set", M5.Display.color565(80, 80, 100)); return; }
+        if (_aliasCount == 0) { _con->print("no aliases set", COL_DIM); return; }
         for (int i = 0; i < _aliasCount; i++) {
             char msg[48];
             snprintf(msg, sizeof(msg), " %s = %s", _aliases[i].name, _aliases[i].cmd);
-            _con->print(msg, TFT_CYAN);
+            _con->print(msg, COL_INFO);
         }
         return;
     }
@@ -759,7 +775,7 @@ void Shell::cmdAlias(const char* args) {
     char name[16];
     const char* cmd = parseArg(args, name, sizeof(name));
     if (*cmd == '\0') {
-        _con->print("usage: alias <n> <cmd>", TFT_RED);
+        _con->print("usage: alias <n> <cmd>", COL_RED);
         return;
     }
 
@@ -779,13 +795,13 @@ void Shell::cmdAlias(const char* args) {
             strncpy(_aliases[i].cmd, cmd, 63);
             _aliases[i].cmd[63] = '\0';
             saveAliases();
-            _con->print("updated", TFT_GREEN);
+            _con->print("updated", COL_OK);
             return;
         }
     }
 
     if (_aliasCount >= MAX_ALIASES) {
-        _con->print("max aliases reached", TFT_RED);
+        _con->print("max aliases reached", COL_RED);
         return;
     }
 
@@ -795,11 +811,11 @@ void Shell::cmdAlias(const char* args) {
     _aliases[_aliasCount].cmd[63] = '\0';
     _aliasCount++;
     saveAliases();
-    _con->print("alias set", TFT_GREEN);
+    _con->print("alias set", COL_OK);
 }
 
 void Shell::cmdUnalias(const char* args) {
-    if (*args == '\0') { _con->print("usage: unalias <name>", TFT_RED); return; }
+    if (*args == '\0') { _con->print("usage: unalias <name>", COL_RED); return; }
     char name[16];
     parseArg(args, name, sizeof(name));
 
@@ -808,11 +824,11 @@ void Shell::cmdUnalias(const char* args) {
             for (int j = i; j < _aliasCount - 1; j++) _aliases[j] = _aliases[j+1];
             _aliasCount--;
             saveAliases();
-            _con->print("removed", TFT_GREEN);
+            _con->print("removed", COL_OK);
             return;
         }
     }
-    _con->print("not found", TFT_RED);
+    _con->print("not found", COL_RED);
 }
 
 void Shell::tabReset() {

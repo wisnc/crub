@@ -8,6 +8,13 @@ void Console::init() {
     _scrollOffset = 0;
     _barHistIdx = -1;
     memset(_input, 0, INPUT_MAX);
+    M5.Display.fillScreen(COL_BG);
+    drawBorder();
+}
+
+void Console::drawBorder() {
+    M5.Display.drawRect(5, 5, 230, 125, COL_BORDER);
+    M5.Display.drawRect(6, 6, 228, 123, COL_BORDER);
 }
 
 void Console::addLine(const char* text, uint16_t color) {
@@ -26,7 +33,7 @@ void Console::print(const char* text, uint16_t color) {
     int len = strlen(text);
     if (len == 0) { addLine("", color); return; }
     int pos = 0;
-    char buf[41];
+    char buf[37];
     while (pos < len) {
         int chunk = len - pos;
         if (chunk > COLS) chunk = COLS;
@@ -42,7 +49,7 @@ void Console::printBar(const uint16_t* colors, int len) {
     int n = (len > COLS) ? COLS : len;
     memset(bar, '|', n);
     bar[n] = '\0';
-    addLine(bar, TFT_WHITE);
+    addLine(bar, COL_ORANGE);
 
     _barHistIdx = (_histHead - 1 + HIST_LINES) % HIST_LINES;
     memset(_barCharColors, 0, sizeof(_barCharColors));
@@ -61,11 +68,10 @@ void Console::drawHistory() {
 
     M5.Display.setTextSize(1);
     for (int row = 0; row < histRows; row++) {
-        int y = row * FONT_H;
+        int y = CONTENT_Y + row * FONT_H;
+
         if (row < histRows - showCount) {
-            M5.Display.setTextColor(TFT_BLACK, TFT_BLACK);
-            M5.Display.setCursor(0, y);
-            M5.Display.printf("%-40s", "");
+            M5.Display.fillRect(CONTENT_X, y, COLS * FONT_W, FONT_H, COL_BG);
         } else {
             int idx = (startIdx + (row - (histRows - showCount))) % HIST_LINES;
 
@@ -73,38 +79,40 @@ void Console::drawHistory() {
                 const char* text = _hist[idx].text;
                 int tlen = strlen(text);
                 for (int c = 0; c < COLS; c++) {
-                    M5.Display.setCursor(c * FONT_W, y);
+                    int cx = CONTENT_X + c * FONT_W;
                     if (c < tlen) {
-                        M5.Display.setTextColor(_barCharColors[c], TFT_BLACK);
+                        M5.Display.setTextColor(_barCharColors[c], COL_BG);
+                        M5.Display.setCursor(cx, y);
                         M5.Display.print(text[c]);
                     } else {
-                        M5.Display.setTextColor(TFT_BLACK, TFT_BLACK);
-                        M5.Display.print(' ');
+                        M5.Display.fillRect(cx, y, FONT_W, FONT_H, COL_BG);
                     }
                 }
             } else {
-                M5.Display.setTextColor(_hist[idx].color, TFT_BLACK);
-                M5.Display.setCursor(0, y);
-                M5.Display.printf("%-40s", _hist[idx].text);
+                M5.Display.setTextColor(_hist[idx].color, COL_BG);
+                M5.Display.setCursor(CONTENT_X, y);
+                char padded[37];
+                snprintf(padded, sizeof(padded), "%-36s", _hist[idx].text);
+                M5.Display.print(padded);
             }
         }
     }
 
     if (_scrollOffset > 0) {
-        M5.Display.setTextColor(TFT_YELLOW, TFT_BLACK);
-        M5.Display.setCursor(234, 0);
+        M5.Display.setTextColor(COL_WARN, COL_BG);
+        M5.Display.setCursor(CONTENT_X + (COLS - 1) * FONT_W, CONTENT_Y);
         M5.Display.print("^");
     }
 }
 
 void Console::drawInput() {
-    int y = (ROWS - 1) * FONT_H;
-    uint16_t bg = M5.Display.color565(10, 10, 30);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextColor(TFT_WHITE, bg);
-    M5.Display.setCursor(0, y);
+    int y = CONTENT_Y + (ROWS - 1) * FONT_H;
 
-    char display[41];
+    M5.Display.fillRect(CONTENT_X, y, COLS * FONT_W, FONT_H, COL_BG);
+
+    M5.Display.setTextSize(1);
+
+    char display[37];
     memset(display, ' ', COLS);
     display[COLS] = '\0';
     display[0] = '>';
@@ -119,12 +127,15 @@ void Console::drawInput() {
     int cursorPos = 1 + written;
     if (cursorPos < COLS) display[cursorPos] = '_';
 
+    M5.Display.setTextColor(COL_ORANGE, COL_BG);
+    M5.Display.setCursor(CONTENT_X, y);
     M5.Display.print(display);
 }
 
 void Console::redraw() {
     drawHistory();
     drawInput();
+    drawBorder();
 }
 
 void Console::inputChar(char c) {
@@ -148,7 +159,7 @@ bool Console::inputEnter(char* outBuf, int outBufSize) {
 
     char echo[INPUT_MAX + 2];
     snprintf(echo, sizeof(echo), ">%s", _input);
-    print(echo, M5.Display.color565(100, 100, 120));
+    print(echo, COL_ECHO);
 
     _inputLen = 0;
     _input[0] = '\0';

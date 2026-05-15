@@ -1,5 +1,6 @@
 #pragma once
 #include "console.h"
+#include "editor.h"
 #include <SD.h>
 
 class Shell {
@@ -28,6 +29,7 @@ private:
     void cmdCat(const char* args);
     void cmdClear();
     void cmdHelp();
+    void cmdEdit(const char* args);
 
     void cmdFlash(const char* args);
     void cmdLaunch();

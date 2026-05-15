@@ -23,6 +23,81 @@ static bool g0Last = true;
 #define BRIGHT_STEP 32
 #define BTN_G0      0
 
+static const uint8_t LOGO_C[] = {
+    0x7C, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x7C
+};
+static const uint8_t LOGO_R[] = {
+    0xDC, 0xE0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0
+};
+static const uint8_t LOGO_U[] = {
+    0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0x78
+};
+static const uint8_t LOGO_B[] = {
+    0xC0, 0xC0, 0xF8, 0xCC, 0xCC, 0xCC, 0xCC, 0xF8, 0x70
+};
+
+static const int LOGO_CRU_H = 7;
+static const int LOGO_B_H = 9;
+
+static void showBootScreen() {
+    M5.Display.fillScreen(COL_BG);
+
+    for (int y = 0; y < 135; y += 8)
+        M5.Display.drawFastHLine(8, y, 224, COL_GRID);
+    for (int x = 0; x < 240; x += 8)
+        M5.Display.drawFastVLine(x, 8, 119, COL_GRID);
+
+    M5.Display.drawRect(5, 5, 230, 125, COL_BORDER);
+    M5.Display.drawRect(6, 6, 228, 123, COL_BORDER);
+
+    int bs = 4;
+    int letterW = 6;
+    int gap = 6;
+    int totalW = 4 * letterW * bs + 3 * gap;
+    int startX = (240 - totalW) / 2;
+    int baselineY = 25 + LOGO_B_H * bs;
+
+    const uint8_t* letters[] = { LOGO_C, LOGO_R, LOGO_U, LOGO_B };
+    int heights[] = { LOGO_CRU_H, LOGO_CRU_H, LOGO_CRU_H, LOGO_B_H };
+
+    for (int l = 0; l < 4; l++) {
+        int lx = startX + l * (letterW * bs + gap);
+        int topY = baselineY - heights[l] * bs;
+        for (int row = 0; row < heights[l]; row++) {
+            uint8_t bits = letters[l][row];
+            for (int col = 0; col < letterW; col++) {
+                if (bits & (1 << (7 - col))) {
+                    M5.Display.fillRect(lx + col * bs, topY + row * bs, bs, bs, COL_ORANGE);
+                }
+            }
+        }
+    }
+
+    M5.Display.setTextSize(1);
+    const char* sub = "cardputer bootloader";
+    int subLen = strlen(sub);
+    int subX = (240 - subLen * 6) / 2;
+    int subY = baselineY + 10;
+
+    M5.Display.setTextColor(COL_DIM, COL_BG);
+    M5.Display.setCursor(subX, subY);
+    M5.Display.print(sub);
+
+    int ulY = subY + 9;
+    int crubIdx[] = {0, 2, 5, 10};
+    for (int i = 0; i < 4; i++) {
+        int cx = subX + crubIdx[i] * 6;
+        M5.Display.drawFastHLine(cx, ulY, 5, COL_ECHO);
+    }
+
+    M5.Display.setTextColor(COL_ECHO, COL_BG);
+    const char* ver = "v2.0";
+    M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
+    M5.Display.print(ver);
+
+    delay(1500);
+}
+
 static int32_t scrollReadInc() {
     int32_t val = 0;
     Wire.beginTransmission(SCROLL_ADDR);
@@ -35,58 +110,12 @@ static int32_t scrollReadInc() {
     return val;
 }
 
-static void showBootScreen() {
-    M5.Display.fillScreen(TFT_BLACK);
-    M5.Display.setTextSize(1);
-
-    const char* art[] = {
-        "  ____ ____  _   _ ____",
-        " / ___|  _ \\| | | | __ )",
-        "| |   | |_) | | | |  _ \\",
-        " | |___| _ < | |_| | |_) |",
-        "\\____|_| \\_\\\\___/ |____/",
-    };
-
-    int artY = 20;
-    M5.Display.setTextColor(TFT_GREEN, TFT_BLACK);
-    for (int i = 0; i < 5; i++) {
-        int x = (240 - strlen(art[i]) * 6) / 2;
-        if (x < 0) x = 0;
-        M5.Display.setCursor(x, artY + i * 9);
-        M5.Display.print(art[i]);
-    }
-
-    const char* label = "cardputer bootloader";
-    int labelY = artY + 5 * 9 + 14;
-    int labelX = (240 - strlen(label) * 6) / 2;
-
-    M5.Display.setCursor(labelX, labelY);
-    M5.Display.setTextColor(M5.Display.color565(140, 140, 160), TFT_BLACK);
-    M5.Display.print(label);
-
-    int underlineY = labelY + 8;
-    uint16_t ulColor = TFT_GREEN;
-    int underlineChars[] = {0, 2, 5, 10};
-    for (int i = 0; i < 4; i++) {
-        int cx = labelX + underlineChars[i] * 6;
-        M5.Display.drawFastHLine(cx, underlineY, 5, ulColor);
-    }
-
-    M5.Display.setTextColor(M5.Display.color565(60, 60, 80), TFT_BLACK);
-    const char* ver = "v1.8";
-    M5.Display.setCursor((240 - strlen(ver) * 6) / 2, labelY + 14);
-    M5.Display.print(ver);
-
-    delay(1500);
-    M5.Display.fillScreen(TFT_BLACK);
-}
-
 void setup() {
     auto cfg = M5.config();
     M5Cardputer.begin(cfg);
 
     M5.Display.setRotation(1);
-    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.fillScreen(COL_BG);
     M5.Display.setTextSize(1);
     M5.Display.setBrightness(brightness);
     pinMode(BTN_G0, INPUT_PULLUP);
@@ -109,14 +138,14 @@ void setup() {
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
     if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
 
-    con.print("CRUB v1.8", TFT_CYAN);
+    con.print("crub v2.0", COL_ORANGE);
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running) {
         char msg[48];
         snprintf(msg, sizeof(msg), "running: %s @0x%lX",
                  running->label, (unsigned long)running->address);
-        con.print(msg, M5.Display.color565(80, 80, 100));
+        con.print(msg, COL_DIM);
     }
 
     const esp_partition_t* ota = esp_partition_find_first(
@@ -135,20 +164,19 @@ void setup() {
                 if (fwf) fwf.close();
                 snprintf(msg, sizeof(msg), "ota_0: has firmware");
             }
-            con.print(msg, TFT_GREEN);
+            con.print(msg, COL_OK);
         } else {
             char msg[48];
             snprintf(msg, sizeof(msg), "ota_0: %dK (empty)", (int)(ota->size/1024));
-            con.print(msg, M5.Display.color565(80, 80, 100));
+            con.print(msg, COL_DIM);
         }
     }
 
     con.print(sdReady ? "SD: ok" : "SD: not found",
-              sdReady ? M5.Display.color565(80, 80, 100) : TFT_YELLOW);
+              sdReady ? COL_DIM : COL_WARN);
     con.print(scrollReady ? "scroll: ok" : "scroll: not found",
-              scrollReady ? M5.Display.color565(80, 80, 100)
-                          : M5.Display.color565(60, 60, 80));
-    con.print("type 'help'", M5.Display.color565(80, 80, 100));
+              scrollReady ? COL_DIM : COL_ECHO);
+    con.print("type 'help'", COL_DIM);
     con.redraw();
 }
 
