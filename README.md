@@ -17,7 +17,11 @@ running `flash binary.bin`
 
 <img src="crub5.jpg" width="300">
 
-hands
+editor
+
+<img src="crub7.jpg" width="300">
+
+overall
 
 <img src="crub1.jpg" width="300">
 
