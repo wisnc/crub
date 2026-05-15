@@ -70,6 +70,12 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 
 ## Version History / Changelog
 
+### v2.0
+
+- updated UI
+- added a nano-like text editor
+- probably final update as no other features are planned
+
 ### v1.8
 
 - nvs gets overwritten every time a firmware is being flashed. this was on 1.7 when i added functionality to name what firmware is inside ota_0 by writing it in nvs. it is also where the aliases are saved. fixed it by moving those to SD (firmware name and alias). because who would use this firmware flasher and file manager without an SD right? 
