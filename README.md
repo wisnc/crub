@@ -52,6 +52,20 @@ commands can be viewed with `help`
 
 display can also be controlled with Fn + _ and Fn + = for dimmer and brighter display. also Btn0 toggles display to save battery
 
+### editor
+
+`edit (filename)` to enter nano-like editor
+
+`Fn + , . / ;` for left down right up
+
+`Fn + backspace` for exit/save. moves to status line and prompts directory to save and filename. enter to save Fn + backspace to discard
+  
+`Fn + C` copy line
+
+`Fn + V` paste line
+
+`Fn + X` cut line
+
 ---
 
 ## Version History / Changelog
