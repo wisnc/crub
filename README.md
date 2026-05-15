@@ -48,6 +48,25 @@ make sure to replace `<COM PORT>` with your cardputer serial port.
 
 ## How to use
 
+flash binaries from SD with
+```
+flash /path/to/binary.bin
+```
+
+then launch it with
+
+```
+launch
+```
+
+
+create aliases for flashing and launch: e.g. shortcut flash and launch bruce as "br"
+
+```
+alias br "bruce /binaries/bruce.bin && launch"
+```
+
+
 commands can be viewed with `help`
 
 display can also be controlled with Fn + _ and Fn + = for dimmer and brighter display. also Btn0 toggles display to save battery
