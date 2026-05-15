@@ -353,6 +353,25 @@ void Shell::drawPartitionMap() {
     _con->printBar(colors, barCols);
 }
 
+static uint32_t getAppImageSize(const esp_partition_t* part) {
+    uint8_t hdr[24];
+    if (esp_partition_read(part, 0, hdr, 24) != ESP_OK) return 0;
+    if (hdr[0] != 0xE9) return 0;
+    uint8_t segCount = hdr[1];
+    uint32_t offset = 24;
+    for (int i = 0; i < segCount; i++) {
+        uint8_t segHdr[8];
+        if (esp_partition_read(part, offset, segHdr, 8) != ESP_OK) return 0;
+        uint32_t dataLen;
+        memcpy(&dataLen, &segHdr[4], 4);
+        offset += 8 + dataLen;
+    }
+    offset += 1;
+    offset = (offset + 15) & ~15;
+    offset += 32;
+    return offset;
+}
+
 void Shell::cmdPartInfo() {
     FlashPart parts[MAX_PARTS];
     int count = collectPartitions(parts, MAX_PARTS);
@@ -369,24 +388,26 @@ void Shell::cmdPartInfo() {
         const char* sub = subtypeName(parts[i].type, parts[i].subtype);
         int sizeK = parts[i].size / 1024;
 
-        char flags[6] = "";
+        char flags[16] = "";
         if (parts[i].type == ESP_PARTITION_TYPE_APP) {
-            if (running && parts[i].offset == running->address)
-                strcpy(flags, " *");
-            else {
-                const esp_partition_t* p = esp_partition_find_first(
-                    (esp_partition_type_t)parts[i].type,
-                    (esp_partition_subtype_t)parts[i].subtype,
-                    parts[i].label);
-                uint8_t magic;
-                if (p && esp_partition_read(p, 0, &magic, 1) == ESP_OK && magic == 0xE9)
-                    strcpy(flags, " FW");
+            const esp_partition_t* p = esp_partition_find_first(
+                (esp_partition_type_t)parts[i].type,
+                (esp_partition_subtype_t)parts[i].subtype,
+                parts[i].label);
+            if (p) {
+                uint32_t used = getAppImageSize(p);
+                if (used > 0) {
+                    int usedK = (used + 1023) / 1024;
+                    if (running && parts[i].offset == running->address)
+                        snprintf(flags, sizeof(flags), " %dK *", usedK);
+                    else
+                        snprintf(flags, sizeof(flags), " %dK", usedK);
+                }
             }
         }
 
-        snprintf(msg, sizeof(msg), "%-8s %s/%-6s %5dK %06lX%s",
-                 parts[i].label, tp, sub, sizeK,
-                 (unsigned long)parts[i].offset, flags);
+        snprintf(msg, sizeof(msg), "%-8s %s/%-5s %5dK%s",
+                 parts[i].label, tp, sub, sizeK, flags);
         _con->print(msg, partColor(parts[i].type, parts[i].subtype));
     }
 }
