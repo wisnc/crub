@@ -91,7 +91,7 @@ static void showBootScreen() {
     }
 
     M5.Display.setTextColor(COL_ECHO, COL_BG);
-    const char* ver = "v1.7";
+    const char* ver = "v2.1";
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
     M5.Display.print(ver);
 
@@ -141,7 +141,7 @@ void setup() {
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
     if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
 
-    con.print("CRUB v1.7", COL_ORANGE);
+    con.print("crub v2.1", COL_ORANGE);
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running) {
