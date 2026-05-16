@@ -66,6 +66,13 @@ create aliases for flashing and launch: e.g. shortcut flash and launch bruce as 
 alias br "bruce /binaries/bruce.bin && launch"
 ```
 
+view binary partition scheme
+
+```
+bininfo /path/to/binary.bin
+```
+
+
 
 commands can be viewed with `help`
 
