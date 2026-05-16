@@ -89,6 +89,10 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 
 ## Version History / Changelog
 
+### v2.1
+
+-fixed an issue where having a LoRa Cap (or any Cap on that matter) interferes with reading the SD on boot
+
 ### v2.0
 
 - updated UI
