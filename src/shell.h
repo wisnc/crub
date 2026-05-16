@@ -32,6 +32,7 @@ private:
     void cmdEdit(const char* args);
 
     void cmdFlash(const char* args);
+    void cmdBininfo(const char* args);
     void cmdLaunch();
     void cmdReboot();
     void cmdPartInfo();

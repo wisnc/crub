@@ -143,6 +143,7 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "edit") == 0)     cmdEdit(args);
     else if (strcmp(cmd, "clear") == 0)    cmdClear();
     else if (strcmp(cmd, "flash") == 0)    cmdFlash(args);
+    else if (strcmp(cmd, "bininfo") == 0)  cmdBininfo(args);
     else if (strcmp(cmd, "launch") == 0)   cmdLaunch();
     else if (strcmp(cmd, "reboot") == 0)   cmdReboot();
     else if (strcmp(cmd, "partinfo") == 0) cmdPartInfo();
@@ -325,6 +326,7 @@ void Shell::cmdHelp() {
     _con->print(" rm mv cp touch cat edit", COL_INFO);
     _con->print("ota:", COL_INFO);
     _con->print(" flash <file.bin>", COL_INFO);
+    _con->print(" bininfo <file.bin>", COL_INFO);
     _con->print(" launch  reboot", COL_INFO);
     _con->print(" partinfo", COL_INFO);
     _con->print(" erase <partition>", COL_INFO);
@@ -399,10 +401,12 @@ void Shell::cmdPartInfo() {
     const esp_partition_t* running = esp_ota_get_running_partition();
     char msg[48];
 
+    uint32_t allocated = 0;
     for (int i = 0; i < count; i++) {
         const char* tp  = (parts[i].type == 0) ? "app" : "dat";
         const char* sub = subtypeName(parts[i].type, parts[i].subtype);
         int sizeK = parts[i].size / 1024;
+        allocated += parts[i].size;
 
         char flags[16] = "";
         if (parts[i].type == ESP_PARTITION_TYPE_APP) {
@@ -426,6 +430,16 @@ void Shell::cmdPartInfo() {
                  parts[i].label, tp, sub, sizeK, flags);
         _con->print(msg, partColor(parts[i].type, parts[i].subtype));
     }
+
+    _con->print("", COL_BG);
+    const uint32_t flashSize = 0x800000;
+    uint32_t reserved = (count > 0) ? parts[0].offset : 0;
+    uint32_t unalloc = flashSize - reserved - allocated;
+    snprintf(msg, sizeof(msg), "flash: %dK  rsv: %dK  free: %dK",
+             (int)(flashSize / 1024),
+             (int)(reserved / 1024),
+             (int)(unalloc / 1024));
+    _con->print(msg, COL_DIM);
 }
 
 void Shell::cmdErase(const char* args) {
@@ -535,6 +549,91 @@ bool Shell::writeFileRegion(File& f, const esp_partition_t* part, uint32_t fileO
     return true;
 }
 
+void Shell::cmdBininfo(const char* args) {
+    if (*args == '\0') { _con->print("usage: bininfo <file.bin>", COL_RED); return; }
+
+    char path[256];
+    resolvePath(args, path, sizeof(path));
+
+    File bin = SD.open(path, FILE_READ);
+    if (!bin) { _con->print("cannot open file", COL_RED); return; }
+
+    size_t fileSize = bin.size();
+    char msg[48];
+    snprintf(msg, sizeof(msg), "file: %dK", (int)(fileSize / 1024));
+    _con->print(msg, COL_DIM);
+
+    const esp_partition_t* ota = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+    uint32_t otaSize = ota ? ota->size : 0;
+
+    uint8_t ptMagic = 0;
+    if (fileSize > 0x8000) {
+        bin.seek(0x8000);
+        bin.read(&ptMagic, 1);
+    }
+
+    if (ptMagic == 0xAA && fileSize > 0x10000) {
+        _con->print("type: merged binary", COL_DIM);
+
+        BinPartEntry parts[MAX_BIN_PARTS];
+        int partCount = parseBinPartTable(bin, parts, MAX_BIN_PARTS);
+
+        if (partCount == 0) {
+            _con->print("no partitions found", COL_RED);
+            bin.close();
+            return;
+        }
+
+        uint32_t appSize = 0;
+        for (int i = 0; i < partCount; i++) {
+            const char* tp = (parts[i].type == 0) ? "app" : "dat";
+            const char* sub = subtypeName(parts[i].type, parts[i].subtype);
+            int sizeK = parts[i].size / 1024;
+
+            bool inFile = (parts[i].offset + parts[i].size <= fileSize);
+
+            snprintf(msg, sizeof(msg), " %-8s %s/%-5s %5dK%s",
+                     parts[i].label, tp, sub, sizeK,
+                     inFile ? "" : " (no data)");
+            _con->print(msg, inFile ? COL_INFO : COL_ECHO);
+
+            if (parts[i].type == 0 && parts[i].subtype != 0x20) {
+                appSize = parts[i].size;
+                if (parts[i].offset + appSize > fileSize)
+                    appSize = fileSize - parts[i].offset;
+            }
+        }
+
+        _con->print("", COL_BG);
+        if (appSize > 0 && otaSize > 0) {
+            snprintf(msg, sizeof(msg), "app: %dK  ota_0: %dK",
+                     (int)(appSize / 1024), (int)(otaSize / 1024));
+            _con->print(msg, (appSize <= otaSize) ? COL_OK : COL_WARN);
+            _con->print(
+                (appSize <= otaSize) ? "fits in ota_0" : "exceeds ota_0, will truncate",
+                (appSize <= otaSize) ? COL_OK : COL_WARN);
+        }
+    } else {
+        uint8_t magic0;
+        bin.seek(0);
+        bin.read(&magic0, 1);
+        if (magic0 == 0xE9) {
+            _con->print("type: raw app", COL_DIM);
+            snprintf(msg, sizeof(msg), "app: %dK  ota_0: %dK",
+                     (int)(fileSize / 1024), (int)(otaSize / 1024));
+            _con->print(msg, (fileSize <= otaSize) ? COL_OK : COL_WARN);
+            _con->print(
+                (fileSize <= otaSize) ? "fits in ota_0" : "exceeds ota_0, will truncate",
+                (fileSize <= otaSize) ? COL_OK : COL_WARN);
+        } else {
+            _con->print("not a valid binary", COL_RED);
+        }
+    }
+
+    bin.close();
+}
+
 void Shell::cmdFlash(const char* args) {
     if (*args == '\0') { _con->print("usage: flash <file.bin>", COL_RED); return; }
 
@@ -634,11 +733,10 @@ void Shell::cmdFlash(const char* args) {
     }
 
     if (appSize > ota->size) {
-        snprintf(msg, sizeof(msg), "app too large (%dK>%dK)",
+        snprintf(msg, sizeof(msg), "app %dK > ota_0 %dK, truncating",
                  (int)(appSize/1024), (int)(ota->size/1024));
-        _con->print(msg, COL_RED);
-        bin.close();
-        return;
+        _con->print(msg, COL_WARN);
+        appSize = ota->size;
     }
 
     snprintf(msg, sizeof(msg), "flashing %dK to ota_0...", (int)(appSize/1024));
