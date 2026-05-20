@@ -30,6 +30,7 @@ private:
     void cmdClear();
     void cmdHelp();
     void cmdEdit(const char* args);
+    void cmdFetch();
 
     void cmdFlash(const char* args);
     void cmdBininfo(const char* args);

@@ -150,6 +150,7 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "erase") == 0)    cmdErase(args);
     else if (strcmp(cmd, "alias") == 0)    cmdAlias(args);
     else if (strcmp(cmd, "unalias") == 0)  cmdUnalias(args);
+    else if (strcmp(cmd, "fetch") == 0)    cmdFetch();
     else if (strcmp(cmd, "help") == 0)     cmdHelp();
     else {
         char msg[48];
@@ -337,7 +338,71 @@ void Shell::cmdHelp() {
     _con->print("keys:", COL_INFO);
     _con->print(" Tab=autocomplete", COL_INFO);
     _con->print(" Fn+;=up Fn+.=down", COL_INFO);
-    _con->print("other: clear  help", COL_INFO);
+    _con->print("other: clear fetch help", COL_INFO);
+}
+
+void Shell::cmdFetch() {
+    static const char* logo[] = {
+        "::::::::::::",
+        "::::#:::::::",
+        ":::##:::#:::",
+        "::##::::##::",
+        ":###:::####:",
+        ":####:#####:",
+        "::####:####:",
+        "::::###:##::",
+    };
+
+    char info[8][24];
+
+    snprintf(info[0], 24, "cpu: LX7 dual @240MHz");
+
+    uint32_t freeK = ESP.getFreeHeap() / 1024;
+    snprintf(info[1], 24, "ram: %luK free 512K total", freeK);
+
+    uint32_t flashMB = ESP.getFlashChipSize() / (1024 * 1024);
+    snprintf(info[2], 24, "flash: %luMB NOR", flashMB);
+
+    snprintf(info[3], 24, "boot: crub v2.3");
+
+    File fwf = SD.open("/.crub_fw", FILE_READ);
+    if (fwf && fwf.size() > 0 && fwf.size() < 20) {
+        char fname[20] = {};
+        fwf.readBytes(fname, fwf.size());
+        fwf.close();
+        snprintf(info[4], 24, "fw: %s", fname);
+    } else {
+        if (fwf) fwf.close();
+        snprintf(info[4], 24, "fw: none");
+    }
+
+    sdcard_type_t ctype = SD.cardType();
+    if (ctype != CARD_NONE) {
+        float sizeG = SD.cardSize() / (1024.0f * 1024.0f * 1024.0f);
+        const char* ct = (ctype == CARD_SDHC) ? "SDHC" :
+                         (ctype == CARD_SD)   ? "SD" :
+                         (ctype == CARD_MMC)  ? "MMC" : "?";
+        snprintf(info[5], 24, "sd: %.1fG %s", sizeG, ct);
+    } else {
+        snprintf(info[5], 24, "sd: not found");
+    }
+
+    extern uint8_t brightness;
+    snprintf(info[6], 24, "lcd: 240x135 b:%d", brightness);
+
+    int batV = M5.Power.getBatteryVoltage();
+    int batLvl = M5.Power.getBatteryLevel();
+    if (batV > 0)
+        snprintf(info[7], 24, "bat: %.1fV %d%%",
+                 batV / 1000.0f, batLvl);
+    else
+        snprintf(info[7], 24, "bat: n/a");
+
+    char line[38];
+    for (int i = 0; i < 8; i++) {
+        snprintf(line, sizeof(line), "%s %s", logo[i], info[i]);
+        _con->print(line, COL_ORANGE);
+    }
 }
 
 int Shell::collectPartitions(FlashPart* out, int max) {
@@ -541,7 +606,7 @@ bool Shell::writeFileRegion(File& f, const esp_partition_t* part, uint32_t fileO
         int pct = (int)(written * 100 / size);
         if (pct / 10 != lastPct / 10) {
             snprintf(msg, sizeof(msg), "%d%%", pct);
-            _con->print(msg, COL_WARN);
+            _con->print(msg, COL_INFO);
             _con->redraw();
             lastPct = pct;
         }
@@ -711,7 +776,7 @@ void Shell::cmdFlash(const char* args) {
                 spiffsSize = parts[spIdx].size;
                 snprintf(msg, sizeof(msg), "spiffs: %dK found",
                          (int)(spiffsSize / 1024));
-                _con->print(msg, COL_INFO);
+                _con->print(msg, COL_WARN);
             }
         } else {
             appOffset = 0x10000;

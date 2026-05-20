@@ -17,7 +17,7 @@ static bool sdReady = false;
 #define GROVE_SCL          1
 static bool scrollReady = false;
 
-static uint8_t brightness = 128;
+uint8_t brightness = 128;
 static bool displayOn = true;
 static bool g0Last = true;
 #define BRIGHT_STEP 32
@@ -91,7 +91,7 @@ static void showBootScreen() {
     }
 
     M5.Display.setTextColor(COL_ECHO, COL_BG);
-    const char* ver = "v2.2";
+    const char* ver = "v2.3";
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
     M5.Display.print(ver);
 
@@ -141,7 +141,7 @@ void setup() {
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
     if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
 
-    con.print("crub v2.2", COL_ORANGE);
+    con.print("crub v2.3", COL_ORANGE);
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running) {
@@ -151,35 +151,7 @@ void setup() {
         con.print(msg, COL_DIM);
     }
 
-    const esp_partition_t* ota = esp_partition_find_first(
-        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-    if (ota) {
-        uint8_t magic;
-        if (esp_partition_read(ota, 0, &magic, 1) == ESP_OK && magic == 0xE9) {
-            char msg[48];
-            File fwf = SD.open("/.crub_fw", FILE_READ);
-            if (fwf && fwf.size() > 0 && fwf.size() < 40) {
-                char fname[40] = {};
-                fwf.readBytes(fname, fwf.size());
-                fwf.close();
-                snprintf(msg, sizeof(msg), "ota_0: %s", fname);
-            } else {
-                if (fwf) fwf.close();
-                snprintf(msg, sizeof(msg), "ota_0: has firmware");
-            }
-            con.print(msg, COL_OK);
-        } else {
-            char msg[48];
-            snprintf(msg, sizeof(msg), "ota_0: %dK (empty)", (int)(ota->size/1024));
-            con.print(msg, COL_DIM);
-        }
-    }
-
-    con.print(sdReady ? "SD: ok" : "SD: not found",
-              sdReady ? COL_DIM : COL_WARN);
-    con.print(scrollReady ? "scroll: ok" : "scroll: not found",
-              scrollReady ? COL_DIM : COL_ECHO);
-    con.print("type 'help'", COL_DIM);
+    shell.process("fetch");
     con.redraw();
 }
 
