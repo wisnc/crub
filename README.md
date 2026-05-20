@@ -96,6 +96,10 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 
 ## Version History / Changelog
 
+### v2.3
+
+- added fetch
+
 ### v2.2
 
 - fixed an issue where larger binaries are unflashable. new functionality to view binary partition scheme `bininfo /path/to/binary.bin`
