@@ -59,6 +59,12 @@ then launch it with
 launch
 ```
 
+aliases can be externally edited and is located as a text file in root directory in
+
+```
+/.crub_aliases
+```
+
 
 create aliases for flashing and launch: e.g. shortcut flash and launch bruce as "br"
 
@@ -95,6 +101,10 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 ---
 
 ## Version History / Changelog
+
+### v2.3b
+
+- added Cardputer v1.1 support. thanks u/First-Preference5831
 
 ### v2.3
 
