@@ -59,7 +59,7 @@ then launch it with
 launch
 ```
 
-aliases can be externally edited and is located as a text file in root directory in
+aliases can be externally edited (or with the built in editor) and is located as a text file in root directory in
 
 ```
 /.crub_aliases
