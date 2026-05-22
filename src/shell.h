@@ -40,9 +40,10 @@ private:
     void cmdErase(const char* args);
 
     struct Alias { char name[16]; char cmd[64]; };
-    static const int MAX_ALIASES = 16;
-    Alias _aliases[MAX_ALIASES];
+    Alias* _aliases = nullptr;
     int _aliasCount = 0;
+    int _aliasCap = 0;
+    bool growAliases();
     void cmdAlias(const char* args);
     void cmdUnalias(const char* args);
     void loadAliases();

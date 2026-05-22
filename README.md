@@ -102,6 +102,10 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 
 ## Version History / Changelog
 
+### v2.4
+
+- fixed an issue: aliases only having 16 entries as limit. now it is practically infinite
+
 ### v2.3b
 
 - added Cardputer v1.1 support. thanks u/First-Preference5831

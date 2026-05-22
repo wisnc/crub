@@ -350,7 +350,7 @@ void Shell::cmdFetch() {
         ":###:::####:",
         ":####:#####:",
         "::####:####:",
-        "::::###:##::",
+        ":::####:##::",
     };
 
     char info[8][24];
@@ -358,7 +358,7 @@ void Shell::cmdFetch() {
     snprintf(info[0], 24, "cpu: LX7 dual @240MHz");
 
     uint32_t freeK = ESP.getFreeHeap() / 1024;
-    snprintf(info[1], 24, "ram: %luK free 512K total", freeK);
+    snprintf(info[1], 24, "ram: %luK free / 512K", freeK);
 
     uint32_t flashMB = ESP.getFlashChipSize() / (1024 * 1024);
     snprintf(info[2], 24, "flash: %luMB NOR", flashMB);
@@ -888,16 +888,26 @@ void Shell::cmdReboot() {
     esp_restart();
 }
 
+bool Shell::growAliases() {
+    int newCap = _aliasCap == 0 ? 8 : _aliasCap * 2;
+    Alias* newArr = (Alias*)realloc(_aliases, newCap * sizeof(Alias));
+    if (!newArr) return false;
+    _aliases = newArr;
+    _aliasCap = newCap;
+    return true;
+}
+
 void Shell::loadAliases() {
     _aliasCount = 0;
     File f = SD.open("/.crub_aliases", FILE_READ);
     if (!f) return;
-    while (f.available() && _aliasCount < MAX_ALIASES) {
+    while (f.available()) {
         String n = f.readStringUntil('\n');
         if (!f.available()) break;
         String c = f.readStringUntil('\n');
         n.trim(); c.trim();
         if (n.length() == 0) break;
+        if (_aliasCount >= _aliasCap && !growAliases()) break;
         strncpy(_aliases[_aliasCount].name, n.c_str(), 15);
         _aliases[_aliasCount].name[15] = '\0';
         strncpy(_aliases[_aliasCount].cmd, c.c_str(), 63);
@@ -963,8 +973,8 @@ void Shell::cmdAlias(const char* args) {
         }
     }
 
-    if (_aliasCount >= MAX_ALIASES) {
-        _con->print("max aliases reached", COL_RED);
+    if (_aliasCount >= _aliasCap && !growAliases()) {
+        _con->print("out of memory", COL_RED);
         return;
     }
 
