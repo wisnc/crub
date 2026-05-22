@@ -42,8 +42,38 @@ void Editor::run() {
     M5.Display.fillScreen(COL_BG);
     draw();
 
+    extern uint8_t brightness;
+    bool displayOn = true;
+    bool g0Last = true;
+
     while (_running) {
         M5Cardputer.update();
+
+        bool g0Now = digitalRead(0);
+        if (!g0Now && g0Last) {
+            displayOn = !displayOn;
+            if (displayOn) {
+                M5.Display.wakeup();
+                M5.Display.setBrightness(brightness);
+                draw();
+            } else {
+                M5.Display.sleep();
+            }
+        }
+        g0Last = g0Now;
+
+        int32_t scrollInc = 0;
+        Wire.beginTransmission(0x40);
+        Wire.write(0x50);
+        Wire.endTransmission(false);
+        if (Wire.requestFrom((uint8_t)0x40, (uint8_t)4) == 4) {
+            uint8_t* p = (uint8_t*)&scrollInc;
+            for (int i = 0; i < 4; i++) p[i] = Wire.read();
+        }
+        if (scrollInc != 0) {
+            moveCursor(-scrollInc, 0);
+            draw();
+        }
 
         if (!M5Cardputer.Keyboard.isChange() || !M5Cardputer.Keyboard.isPressed()) {
             delay(10);
@@ -91,6 +121,12 @@ void Editor::run() {
                     case 'c': copyLine();  needDraw = true; break;
                     case 'x': cutLine();   needDraw = true; break;
                     case 'v': pasteLine(); needDraw = true; break;
+                    case '-':
+                        if (brightness > 32) brightness -= 32; else brightness = 1;
+                        M5.Display.setBrightness(brightness); needDraw = true; break;
+                    case '=':
+                        if (brightness <= 223) brightness += 32; else brightness = 255;
+                        M5.Display.setBrightness(brightness); needDraw = true; break;
                 }
             }
             if (keys.del) {
@@ -99,6 +135,20 @@ void Editor::run() {
                 _promptBuf[sizeof(_promptBuf) - 1] = '\0';
                 _promptLen = strlen(_promptBuf);
                 needDraw = true;
+            }
+        } else if (keys.opt) {
+            for (auto c : keys.word) {
+                switch (c) {
+                    case ';':
+                        _curRow = 0; _curCol = 0;
+                        ensureVisible(); needDraw = true; break;
+                    case '.':
+                        _curRow = _lineCount - 1;
+                        _curCol = strlen(_buf[_curRow]);
+                        ensureVisible(); needDraw = true; break;
+                    case ',': moveCursor(-20, 0); needDraw = true; break;
+                    case '/': moveCursor(20, 0);  needDraw = true; break;
+                }
             }
         } else {
             if (keys.enter) {
@@ -142,11 +192,17 @@ void Editor::drawText() {
             continue;
         }
 
+        char num[5];
+        snprintf(num, sizeof(num), "%2d ", lineIdx + 1);
+        M5.Display.setTextColor(COL_DIM, COL_BG);
+        M5.Display.setCursor(ED_X, y);
+        M5.Display.print(num);
+
         const char* line = _buf[lineIdx];
         int lineLen = strlen(line);
 
-        for (int col = 0; col < ED_COLS; col++) {
-            int cx = ED_X + col * 6;
+        for (int col = 0; col < TEXT_COLS; col++) {
+            int cx = TEXT_X + col * 6;
             int charIdx = _scrollCol + col;
 
             bool isCursor = (lineIdx == _curRow && charIdx == _curCol && !_prompting);
@@ -277,7 +333,7 @@ void Editor::ensureVisible() {
     if (_curRow < _scrollRow) _scrollRow = _curRow;
     if (_curRow >= _scrollRow + ED_ROWS) _scrollRow = _curRow - ED_ROWS + 1;
     if (_curCol < _scrollCol) _scrollCol = _curCol;
-    if (_curCol >= _scrollCol + ED_COLS) _scrollCol = _curCol - ED_COLS + 1;
+    if (_curCol >= _scrollCol + TEXT_COLS) _scrollCol = _curCol - TEXT_COLS + 1;
     if (_scrollCol < 0) _scrollCol = 0;
 }
 
