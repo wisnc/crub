@@ -83,7 +83,20 @@ view binary partition scheme
 bininfo /path/to/binary.bin
 ```
 
+you can also quickly do calculations. start the expression with '='. for example
 
+```
+>=5*3
+15
+>=2.5*(3+1)
+10
+>=100/3
+33.3333
+>=17%5
+2
+>=(2+3)*(7-1)
+30
+```
 
 commands can be viewed with `help`
 
@@ -106,6 +119,11 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 ---
 
 ## Version History / Changelog
+
+### v2.5
+
+- added basic calculator feature
+
 
 ### v2.4
 

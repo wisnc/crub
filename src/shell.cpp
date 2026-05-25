@@ -92,9 +92,71 @@ const char* Shell::parseArg(const char* input, char* arg, int argSize) {
     return input;
 }
 
+static const char* _ep;
+
+static double evalExpr();
+
+static double evalNum() {
+    while (*_ep == ' ') _ep++;
+    if (*_ep == '(') {
+        _ep++;
+        double v = evalExpr();
+        if (*_ep == ')') _ep++;
+        return v;
+    }
+    if (*_ep == '-') {
+        _ep++;
+        return -evalNum();
+    }
+    double v = 0;
+    bool hasDot = false;
+    double frac = 0.1;
+    while ((*_ep >= '0' && *_ep <= '9') || *_ep == '.') {
+        if (*_ep == '.') { hasDot = true; _ep++; continue; }
+        if (hasDot) { v += (*_ep - '0') * frac; frac *= 0.1; }
+        else { v = v * 10 + (*_ep - '0'); }
+        _ep++;
+    }
+    return v;
+}
+
+static double evalTerm() {
+    double v = evalNum();
+    while (*_ep == '*' || *_ep == '/' || *_ep == '%') {
+        char op = *_ep++;
+        double r = evalNum();
+        if (op == '*') v *= r;
+        else if (op == '/' && r != 0) v /= r;
+        else if (op == '%' && r != 0) v = (int)v % (int)r;
+    }
+    return v;
+}
+
+static double evalExpr() {
+    double v = evalTerm();
+    while (*_ep == '+' || *_ep == '-') {
+        char op = *_ep++;
+        double r = evalTerm();
+        if (op == '+') v += r; else v -= r;
+    }
+    return v;
+}
+
 void Shell::process(const char* cmdLine) {
     while (*cmdLine == ' ') cmdLine++;
     if (*cmdLine == '\0') return;
+
+    if (*cmdLine == '=') {
+        _ep = cmdLine + 1;
+        double result = evalExpr();
+        char msg[32];
+        if (result == (int)result && result > -1000000 && result < 1000000)
+            snprintf(msg, sizeof(msg), "%d", (int)result);
+        else
+            snprintf(msg, sizeof(msg), "%.6g", result);
+        _con->print(msg, COL_ORANGE);
+        return;
+    }
 
     const char* sep = nullptr;
     bool inQuote = false;
@@ -343,14 +405,14 @@ void Shell::cmdHelp() {
 
 void Shell::cmdFetch() {
     static const char* logo[] = {
-        "::::::::::::",
-        "::::#:::::::",
-        ":::##:::#:::",
-        "::##::::##::",
-        ":###:::####:",
-        ":####:#####:",
-        "::####:####:",
-        ":::####:##::",
+        "::::####::::",
+        ":::####:::::",
+        "::########::",
+        ":########:::",
+        "::::####::::",
+        ":::####:::::",
+        "::####::::::",
+        ":##:::::::::",
     };
 
     char info[8][24];
