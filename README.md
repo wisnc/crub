@@ -116,6 +116,10 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 
 `Fn + X` cut line
 
+`Opt + .` move to end of the file
+
+`Opt + ;` move to top of the file
+
 ---
 
 ## Version History / Changelog
