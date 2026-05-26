@@ -83,6 +83,16 @@ view binary partition scheme
 bininfo /path/to/binary.bin
 ```
 
+run scripts from SD
+
+```
+run /path/to/script.sh
+```
+
+scripts are just text files with one command per line. lines starting with `#` are comments. you can use `echo`, `sleep`, and any other crub command inside them
+
+boot scripts run automatically if `/.crub_boot` exists on the SD card
+
 you can also quickly do calculations. start the expression with '='. for example
 
 ```
@@ -123,6 +133,16 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 ---
 
 ## Version History / Changelog
+
+### v2.6
+
+- added file utilities: `head`, `find`, `tree`, `wc`, `hex`
+- added system commands: `uptime`, `free`, `i2cscan`, `md5`, `beep`
+- added scripting: `run`, `echo`, `sleep`, `#` comments
+- added `/.crub_boot` boot script. runs on every boot if it exists on SD
+- shrunk test partition from 1536K to 704K. ota_0 is now 5824K
+- partinfo now shows unallocated flash space
+- updated help to show all commands
 
 ### v2.5
 

@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <Wire.h>
+#include "mbedtls/md5.h"
 
 static const char* subtypeName(uint8_t type, uint8_t subtype) {
     if (type == ESP_PARTITION_TYPE_APP) {
@@ -158,6 +160,8 @@ void Shell::process(const char* cmdLine) {
         return;
     }
 
+    if (*cmdLine == '#') return;
+
     const char* sep = nullptr;
     bool inQuote = false;
     for (const char* p = cmdLine; *p; p++) {
@@ -202,7 +206,20 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "cp") == 0)       cmdCp(args);
     else if (strcmp(cmd, "touch") == 0)    cmdTouch(args);
     else if (strcmp(cmd, "cat") == 0)      cmdCat(args);
+    else if (strcmp(cmd, "head") == 0)     cmdHead(args);
+    else if (strcmp(cmd, "wc") == 0)       cmdWc(args);
+    else if (strcmp(cmd, "hex") == 0)      cmdHex(args);
+    else if (strcmp(cmd, "find") == 0)     cmdFind(args);
+    else if (strcmp(cmd, "tree") == 0)     cmdTree(args);
     else if (strcmp(cmd, "edit") == 0)     cmdEdit(args);
+    else if (strcmp(cmd, "echo") == 0)     cmdEcho(args);
+    else if (strcmp(cmd, "run") == 0)      cmdRun(args);
+    else if (strcmp(cmd, "sleep") == 0)    cmdSleep(args);
+    else if (strcmp(cmd, "md5") == 0)      cmdMd5(args);
+    else if (strcmp(cmd, "beep") == 0)     cmdBeep(args);
+    else if (strcmp(cmd, "uptime") == 0)   cmdUptime();
+    else if (strcmp(cmd, "free") == 0)     cmdFree();
+    else if (strcmp(cmd, "i2cscan") == 0)  cmdI2cScan();
     else if (strcmp(cmd, "clear") == 0)    cmdClear();
     else if (strcmp(cmd, "flash") == 0)    cmdFlash(args);
     else if (strcmp(cmd, "bininfo") == 0)  cmdBininfo(args);
@@ -386,48 +403,46 @@ void Shell::cmdEdit(const char* args) {
 void Shell::cmdHelp() {
     _con->print("file:", COL_INFO);
     _con->print(" ls cd pwd mkdir rmdir", COL_INFO);
-    _con->print(" rm mv cp touch cat edit", COL_INFO);
+    _con->print(" rm mv cp touch cat head", COL_INFO);
+    _con->print(" wc hex find tree edit", COL_INFO);
     _con->print("ota:", COL_INFO);
-    _con->print(" flash <file.bin>", COL_INFO);
-    _con->print(" bininfo <file.bin>", COL_INFO);
-    _con->print(" launch  reboot", COL_INFO);
-    _con->print(" partinfo", COL_INFO);
-    _con->print(" erase <partition>", COL_INFO);
+    _con->print(" flash bininfo launch", COL_INFO);
+    _con->print(" reboot partinfo erase", COL_INFO);
     _con->print("alias:", COL_INFO);
     _con->print(" alias [name] [\"cmd\"]", COL_INFO);
     _con->print(" unalias <name>", COL_INFO);
+    _con->print("script:", COL_INFO);
+    _con->print(" run echo sleep # comment", COL_INFO);
+    _con->print("system:", COL_INFO);
+    _con->print(" fetch free uptime md5", COL_INFO);
+    _con->print(" i2cscan beep =expr", COL_INFO);
     _con->print("chain: cmd1 && cmd2", COL_INFO);
-    _con->print("keys:", COL_INFO);
-    _con->print(" Tab=autocomplete", COL_INFO);
-    _con->print(" Fn+;=up Fn+.=down", COL_INFO);
-    _con->print("other: clear fetch help", COL_INFO);
+    _con->print("other: clear help", COL_INFO);
 }
 
 void Shell::cmdFetch() {
     static const char* logo[] = {
-        "::::::::::::",
-		"::::#:::::::",
-		":::##:::#:::",
-		"::##::::##::",
-		":###:::####:",
-		":####:#####:",
-		"::####:####:",
-		":::####:##::",
+		"::::::::::::",
+        "::::#:::::::",
+        ":::##:::#:::",
+        "::##::::##::",
+        ":###:::####:",
+        ":####:#####:",
+        "::####:####:",
+        ":::####:##::",
     };
-	
-
 
     char info[8][24];
 
     snprintf(info[0], 24, "cpu: LX7 dual @240MHz");
 
     uint32_t freeK = ESP.getFreeHeap() / 1024;
-    snprintf(info[1], 24, "ram: %luK free of 512K", freeK);
+    snprintf(info[1], 24, "ram: %luK free / 512K", freeK);
 
     uint32_t flashMB = ESP.getFlashChipSize() / (1024 * 1024);
     snprintf(info[2], 24, "flash: %luMB NOR", flashMB);
 
-    snprintf(info[3], 24, "boot: crub v2.5");
+    snprintf(info[3], 24, "boot: crub v2.6");
 
     File fwf = SD.open("/.crub_fw", FILE_READ);
     if (fwf && fwf.size() > 0 && fwf.size() < 20) {
@@ -467,6 +482,249 @@ void Shell::cmdFetch() {
         snprintf(line, sizeof(line), "%s %s", logo[i], info[i]);
         _con->print(line, COL_ORANGE);
     }
+}
+
+void Shell::cmdHead(const char* args) {
+    char path[256], nstr[8];
+    const char* rest = parseArg(args, path, sizeof(path));
+    parseArg(rest, nstr, sizeof(nstr));
+    if (!path[0]) { _con->print("usage: head <file> [n]", COL_RED); return; }
+    int n = nstr[0] ? atoi(nstr) : 10;
+    if (n < 1) n = 10;
+    char resolved[256];
+    resolvePath(path, resolved, sizeof(resolved));
+    File f = SD.open(resolved, FILE_READ);
+    if (!f) { _con->print("cannot open file", COL_RED); return; }
+    if (f.isDirectory()) { _con->print("is a directory", COL_RED); f.close(); return; }
+    char buf[128];
+    int count = 0;
+    while (f.available() && count < n) {
+        int len = f.readBytesUntil('\n', buf, sizeof(buf) - 1);
+        buf[len] = '\0';
+        if (len > 0 && buf[len-1] == '\r') buf[len-1] = '\0';
+        _con->print(buf, COL_ORANGE);
+        count++;
+    }
+    f.close();
+}
+
+void Shell::cmdWc(const char* args) {
+    if (!*args) { _con->print("usage: wc <file>", COL_RED); return; }
+    char path[256];
+    resolvePath(args, path, sizeof(path));
+    File f = SD.open(path, FILE_READ);
+    if (!f) { _con->print("cannot open file", COL_RED); return; }
+    int lines = 0, words = 0, chars = 0;
+    bool inWord = false;
+    while (f.available()) {
+        char c = f.read();
+        chars++;
+        if (c == '\n') { lines++; inWord = false; }
+        else if (c == ' ' || c == '\t' || c == '\r') { inWord = false; }
+        else { if (!inWord) words++; inWord = true; }
+    }
+    if (chars > 0 && inWord) lines++;
+    f.close();
+    char msg[36];
+    snprintf(msg, sizeof(msg), "L:%d W:%d C:%d", lines, words, chars);
+    _con->print(msg, COL_ORANGE);
+}
+
+void Shell::cmdHex(const char* args) {
+    if (!*args) { _con->print("usage: hex <file>", COL_RED); return; }
+    char path[256];
+    resolvePath(args, path, sizeof(path));
+    File f = SD.open(path, FILE_READ);
+    if (!f) { _con->print("cannot open file", COL_RED); return; }
+    uint8_t buf[8];
+    int offset = 0;
+    int rows = 0;
+    while (f.available() && rows < 32) {
+        int n = f.read(buf, 8);
+        if (n <= 0) break;
+        char line[36];
+        int pos = snprintf(line, sizeof(line), "%04X ", offset);
+        for (int i = 0; i < n && pos < 35; i++)
+            pos += snprintf(line + pos, sizeof(line) - pos, "%02X ", buf[i]);
+        _con->print(line, COL_ORANGE);
+        offset += n;
+        rows++;
+    }
+    if (f.available()) _con->print("... (truncated)", COL_ECHO);
+    f.close();
+}
+
+void Shell::findRecurse(const char* dir, const char* pattern, int depth) {
+    if (depth > 6) return;
+    File d = SD.open(dir);
+    if (!d || !d.isDirectory()) return;
+    File entry = d.openNextFile();
+    while (entry) {
+        const char* name = entry.name();
+        if (strstr(name, pattern)) {
+            char full[256];
+            if (strcmp(dir, "/") == 0)
+                snprintf(full, sizeof(full), "/%s", name);
+            else
+                snprintf(full, sizeof(full), "%s/%s", dir, name);
+            _con->print(full, entry.isDirectory() ? COL_INFO : COL_ORANGE);
+        }
+        if (entry.isDirectory()) {
+            char sub[256];
+            if (strcmp(dir, "/") == 0)
+                snprintf(sub, sizeof(sub), "/%s", name);
+            else
+                snprintf(sub, sizeof(sub), "%s/%s", dir, name);
+            findRecurse(sub, pattern, depth + 1);
+        }
+        entry = d.openNextFile();
+    }
+    d.close();
+}
+
+void Shell::cmdFind(const char* args) {
+    if (!*args) { _con->print("usage: find <name>", COL_RED); return; }
+    findRecurse(_cwd, args, 0);
+}
+
+void Shell::treeRecurse(const char* dir, int depth, int maxDepth) {
+    if (depth > maxDepth) return;
+    File d = SD.open(dir);
+    if (!d || !d.isDirectory()) return;
+    File entry = d.openNextFile();
+    while (entry) {
+        char line[40];
+        int pad = depth * 2;
+        if (pad > 20) pad = 20;
+        memset(line, ' ', pad);
+        const char* name = entry.name();
+        if (entry.isDirectory()) {
+            snprintf(line + pad, sizeof(line) - pad, "[%s]", name);
+            _con->print(line, COL_INFO);
+            char sub[256];
+            if (strcmp(dir, "/") == 0)
+                snprintf(sub, sizeof(sub), "/%s", name);
+            else
+                snprintf(sub, sizeof(sub), "%s/%s", dir, name);
+            treeRecurse(sub, depth + 1, maxDepth);
+        } else {
+            snprintf(line + pad, sizeof(line) - pad, "%s", name);
+            _con->print(line, COL_ORANGE);
+        }
+        entry = d.openNextFile();
+    }
+    d.close();
+}
+
+void Shell::cmdTree(const char* args) {
+    char path[256];
+    if (*args) resolvePath(args, path, sizeof(path));
+    else strcpy(path, _cwd);
+    treeRecurse(path, 0, 4);
+}
+
+void Shell::cmdEcho(const char* args) {
+    _con->print(args, COL_ORANGE);
+}
+
+void Shell::cmdSleep(const char* args) {
+    int ms = atoi(args);
+    if (ms > 0 && ms <= 30000) delay(ms);
+}
+
+void Shell::cmdRun(const char* args) {
+    if (!*args) { _con->print("usage: run <file>", COL_RED); return; }
+    char path[256];
+    resolvePath(args, path, sizeof(path));
+    File f = SD.open(path, FILE_READ);
+    if (!f) { _con->print("cannot open script", COL_RED); return; }
+    char line[256];
+    while (f.available()) {
+        int len = f.readBytesUntil('\n', line, sizeof(line) - 1);
+        line[len] = '\0';
+        if (len > 0 && line[len-1] == '\r') line[len-1] = '\0';
+        if (line[0] == '\0') continue;
+        process(line);
+    }
+    f.close();
+}
+
+void Shell::cmdUptime() {
+    unsigned long ms = millis();
+    int s = (ms / 1000) % 60;
+    int m = (ms / 60000) % 60;
+    int h = ms / 3600000;
+    char msg[24];
+    snprintf(msg, sizeof(msg), "%dh %dm %ds", h, m, s);
+    _con->print(msg, COL_ORANGE);
+}
+
+void Shell::cmdFree() {
+    char msg[36];
+    snprintf(msg, sizeof(msg), "heap: %luK / %luK",
+             ESP.getFreeHeap() / 1024, ESP.getHeapSize() / 1024);
+    _con->print(msg, COL_ORANGE);
+    snprintf(msg, sizeof(msg), "min:  %luK", ESP.getMinFreeHeap() / 1024);
+    _con->print(msg, COL_ORANGE);
+    if (ESP.getFreePsram() > 0) {
+        snprintf(msg, sizeof(msg), "psram: %luK / %luK",
+                 ESP.getFreePsram() / 1024, ESP.getPsramSize() / 1024);
+        _con->print(msg, COL_ORANGE);
+    }
+}
+
+void Shell::cmdI2cScan() {
+    int found = 0;
+    for (int addr = 1; addr < 127; addr++) {
+        Wire.beginTransmission(addr);
+        if (Wire.endTransmission() == 0) {
+            char msg[24];
+            snprintf(msg, sizeof(msg), " 0x%02X found", addr);
+            _con->print(msg, COL_OK);
+            found++;
+        }
+    }
+    char msg[24];
+    snprintf(msg, sizeof(msg), "%d devices", found);
+    _con->print(msg, COL_ECHO);
+}
+
+void Shell::cmdMd5(const char* args) {
+    if (!*args) { _con->print("usage: md5 <file>", COL_RED); return; }
+    char path[256];
+    resolvePath(args, path, sizeof(path));
+    File f = SD.open(path, FILE_READ);
+    if (!f) { _con->print("cannot open file", COL_RED); return; }
+    mbedtls_md5_context ctx;
+    mbedtls_md5_init(&ctx);
+    mbedtls_md5_starts(&ctx);
+    static uint8_t buf[512];
+    while (f.available()) {
+        int n = f.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        mbedtls_md5_update(&ctx, buf, n);
+    }
+    f.close();
+    uint8_t hash[16];
+    mbedtls_md5_finish(&ctx, hash);
+    mbedtls_md5_free(&ctx);
+    char hex[36];
+    for (int i = 0; i < 16; i++)
+        snprintf(hex + i * 2, 3, "%02x", hash[i]);
+    _con->print(hex, COL_ORANGE);
+}
+
+void Shell::cmdBeep(const char* args) {
+    char fstr[8], dstr[8];
+    const char* rest = parseArg(args, fstr, sizeof(fstr));
+    parseArg(rest, dstr, sizeof(dstr));
+    int freq = fstr[0] ? atoi(fstr) : 1000;
+    int dur  = dstr[0] ? atoi(dstr) : 200;
+    if (freq < 20) freq = 20;
+    if (freq > 20000) freq = 20000;
+    if (dur < 10) dur = 10;
+    if (dur > 5000) dur = 5000;
+    M5.Speaker.tone(freq, dur);
 }
 
 int Shell::collectPartitions(FlashPart* out, int max) {

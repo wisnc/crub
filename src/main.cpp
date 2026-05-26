@@ -91,11 +91,11 @@ static void showBootScreen() {
     }
 
     M5.Display.setTextColor(COL_ECHO, COL_BG);
-    const char* ver = "v2.5";
+    const char* ver = "v2.6";
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
     M5.Display.print(ver);
 
-    delay(500);
+    delay(1500);
 }
 
 static int32_t scrollReadInc() {
@@ -140,7 +140,7 @@ void setup() {
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
     if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
 
-    con.print("crub v2.5", COL_ORANGE);
+    con.print("crub v2.6", COL_ORANGE);
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running) {
@@ -151,6 +151,11 @@ void setup() {
     }
 
     shell.process("fetch");
+
+    if (SD.exists("/.crub_boot")) {
+        shell.process("run /.crub_boot");
+    }
+
     con.redraw();
 }
 

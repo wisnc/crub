@@ -27,10 +27,24 @@ private:
     void cmdCp(const char* args);
     void cmdTouch(const char* args);
     void cmdCat(const char* args);
+    void cmdHead(const char* args);
+    void cmdWc(const char* args);
+    void cmdHex(const char* args);
+    void cmdFind(const char* args);
+    void cmdTree(const char* args);
     void cmdClear();
     void cmdHelp();
     void cmdEdit(const char* args);
     void cmdFetch();
+
+    void cmdEcho(const char* args);
+    void cmdSleep(const char* args);
+    void cmdRun(const char* args);
+    void cmdUptime();
+    void cmdFree();
+    void cmdI2cScan();
+    void cmdMd5(const char* args);
+    void cmdBeep(const char* args);
 
     void cmdFlash(const char* args);
     void cmdBininfo(const char* args);
@@ -72,6 +86,9 @@ private:
     static const int MAX_PARTS = 16;
     int collectPartitions(FlashPart* out, int max);
     void drawPartitionMap();
+
+    void findRecurse(const char* dir, const char* pattern, int depth);
+    void treeRecurse(const char* dir, int depth, int maxDepth);
 
     static const int MAX_TAB = 32;
     char _tabMatches[MAX_TAB][64];
