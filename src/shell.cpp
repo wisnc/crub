@@ -405,27 +405,29 @@ void Shell::cmdHelp() {
 
 void Shell::cmdFetch() {
     static const char* logo[] = {
-        "::::####::::",
-        ":::####:::::",
-        "::########::",
-        ":########:::",
-        "::::####::::",
-        ":::####:::::",
-        "::####::::::",
-        ":##:::::::::",
+        "::::::::::::",
+		"::::#:::::::",
+		":::##:::#:::",
+		"::##::::##::",
+		":###:::####:",
+		":####:#####:",
+		"::####:####:",
+		":::####:##::",
     };
+	
+
 
     char info[8][24];
 
     snprintf(info[0], 24, "cpu: LX7 dual @240MHz");
 
     uint32_t freeK = ESP.getFreeHeap() / 1024;
-    snprintf(info[1], 24, "ram: %luK free / 512K", freeK);
+    snprintf(info[1], 24, "ram: %luK free of 512K", freeK);
 
     uint32_t flashMB = ESP.getFlashChipSize() / (1024 * 1024);
     snprintf(info[2], 24, "flash: %luMB NOR", flashMB);
 
-    snprintf(info[3], 24, "boot: crub v2.3");
+    snprintf(info[3], 24, "boot: crub v2.5");
 
     File fwf = SD.open("/.crub_fw", FILE_READ);
     if (fwf && fwf.size() > 0 && fwf.size() < 20) {
