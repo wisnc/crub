@@ -80,7 +80,13 @@ alias br "bruce /binaries/bruce.bin && launch"
 view binary partition scheme
 
 ```
-bininfo /path/to/binary.bin
+pt info /path/to/binary.bin
+```
+
+view current partition scheme
+
+```
+pt info
 ```
 
 run scripts from SD
