@@ -108,6 +108,15 @@ you can also quickly do calculations. start the expression with '='. for example
 30
 ```
 
+just like UNIX, redirect also works 
+
+```
+echo hello world > /path/file.txt
+echo second line >> /path/file.txt
+```
+first command overwrites, and the second command appends
+
+
 commands can be viewed with `help`
 
 display can also be controlled with Fn + _ and Fn + = for dimmer and brighter display. also Btn0 toggles display to save battery
