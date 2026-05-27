@@ -1,5 +1,6 @@
 #pragma once
 #include <M5Cardputer.h>
+#include <SD.h>
 
 #define C565(r,g,b) (((r>>3)<<11)|((g>>2)<<5)|(b>>3))
 
@@ -30,6 +31,9 @@ public:
     void printBar(const uint16_t* colors, int len);
     void redraw();
 
+    void setRedirect(File* f) { _redirect = f; }
+    void clearRedirect() { _redirect = nullptr; }
+
     void inputChar(char c);
     void inputBackspace();
     bool inputEnter(char* outBuf, int outBufSize);
@@ -57,6 +61,8 @@ private:
 
     int _barHistIdx = -1;
     uint16_t _barCharColors[COLS];
+
+    File* _redirect = nullptr;
 
     void addLine(const char* text, uint16_t color);
     void drawBorder();

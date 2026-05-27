@@ -30,6 +30,10 @@ void Console::addLine(const char* text, uint16_t color) {
 }
 
 void Console::print(const char* text, uint16_t color) {
+    if (_redirect) {
+        _redirect->println(text);
+        return;
+    }
     int len = strlen(text);
     if (len == 0) { addLine("", color); return; }
     int pos = 0;

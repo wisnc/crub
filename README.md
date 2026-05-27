@@ -130,9 +130,17 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 
 `Opt + ;` move to top of the file
 
+### USB
+
+run command `usbsd` to enter usb mode. plug in to PC to mount SD from the cardputer itself
+
 ---
 
 ## Version History / Changelog
+
+### v2.6.5
+
+- added `usbsd`
 
 ### v2.6
 

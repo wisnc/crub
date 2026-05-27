@@ -5,6 +5,8 @@
 #include <esp_partition.h>
 #include <Wire.h>
 #include "mbedtls/md5.h"
+#include "esp_flash.h"
+#include "USBMSC.h"
 
 static const char* subtypeName(uint8_t type, uint8_t subtype) {
     if (type == ESP_PARTITION_TYPE_APP) {
@@ -68,6 +70,7 @@ void Shell::init(Console* con) {
     _tabActive = false;
     _tabCount = 0;
     loadAliases();
+    initPending();
 }
 
 void Shell::resolvePath(const char* input, char* out, int outSize) {
@@ -179,6 +182,38 @@ void Shell::process(const char* cmdLine) {
         return;
     }
 
+    const char* redirPos = nullptr;
+    bool redirAppend = false;
+    bool rInQ = false;
+    for (const char* p = cmdLine; *p; p++) {
+        if (*p == '"') { rInQ = !rInQ; continue; }
+        if (!rInQ && *p == '>') {
+            redirAppend = (*(p + 1) == '>');
+            redirPos = p;
+            break;
+        }
+    }
+    if (redirPos) {
+        char before[256];
+        int bLen = redirPos - cmdLine;
+        if (bLen >= (int)sizeof(before)) bLen = sizeof(before) - 1;
+        strncpy(before, cmdLine, bLen);
+        before[bLen] = '\0';
+
+        const char* fp = redirPos + (redirAppend ? 2 : 1);
+        while (*fp == ' ') fp++;
+        char filePath[256];
+        resolvePath(fp, filePath, sizeof(filePath));
+
+        File rf = SD.open(filePath, redirAppend ? FILE_APPEND : FILE_WRITE);
+        if (!rf) { _con->print("cannot open file", COL_RED); return; }
+        _con->setRedirect(&rf);
+        process(before);
+        _con->clearRedirect();
+        rf.close();
+        return;
+    }
+
     char cmd[16];
     parseArg(cmdLine, cmd, sizeof(cmd));
     const char* aliasCmd = resolveAlias(cmd);
@@ -220,12 +255,12 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "uptime") == 0)   cmdUptime();
     else if (strcmp(cmd, "free") == 0)     cmdFree();
     else if (strcmp(cmd, "i2cscan") == 0)  cmdI2cScan();
+    else if (strcmp(cmd, "usbsd") == 0)    cmdUsbSd();
     else if (strcmp(cmd, "clear") == 0)    cmdClear();
     else if (strcmp(cmd, "flash") == 0)    cmdFlash(args);
-    else if (strcmp(cmd, "bininfo") == 0)  cmdBininfo(args);
-    else if (strcmp(cmd, "launch") == 0)   cmdLaunch();
+    else if (strcmp(cmd, "launch") == 0)   cmdLaunch(args);
     else if (strcmp(cmd, "reboot") == 0)   cmdReboot();
-    else if (strcmp(cmd, "partinfo") == 0) cmdPartInfo();
+    else if (strcmp(cmd, "pt") == 0)       cmdPt(args);
     else if (strcmp(cmd, "erase") == 0)    cmdErase(args);
     else if (strcmp(cmd, "alias") == 0)    cmdAlias(args);
     else if (strcmp(cmd, "unalias") == 0)  cmdUnalias(args);
@@ -406,17 +441,22 @@ void Shell::cmdHelp() {
     _con->print(" rm mv cp touch cat head", COL_INFO);
     _con->print(" wc hex find tree edit", COL_INFO);
     _con->print("ota:", COL_INFO);
-    _con->print(" flash bininfo launch", COL_INFO);
-    _con->print(" reboot partinfo erase", COL_INFO);
-    _con->print("alias:", COL_INFO);
-    _con->print(" alias [name] [\"cmd\"]", COL_INFO);
-    _con->print(" unalias <name>", COL_INFO);
+    _con->print(" flash [file] [label]", COL_INFO);
+    _con->print(" flash [file] nospiffs", COL_INFO);
+    _con->print(" launch [label]", COL_INFO);
+    _con->print(" reboot  erase <label>", COL_INFO);
+    _con->print("partition:", COL_INFO);
+    _con->print(" pt info [file]", COL_INFO);
+    _con->print(" pt create <l> <type> <K>", COL_INFO);
+    _con->print(" pt delete/resize <label>", COL_INFO);
+    _con->print(" pt write yes / pt reset", COL_INFO);
     _con->print("script:", COL_INFO);
     _con->print(" run echo sleep # comment", COL_INFO);
     _con->print("system:", COL_INFO);
     _con->print(" fetch free uptime md5", COL_INFO);
-    _con->print(" i2cscan beep =expr", COL_INFO);
+    _con->print(" i2cscan beep usbsd =expr", COL_INFO);
     _con->print("chain: cmd1 && cmd2", COL_INFO);
+    _con->print("alias [name] [\"cmd\"]", COL_INFO);
     _con->print("other: clear help", COL_INFO);
 }
 
@@ -432,12 +472,13 @@ void Shell::cmdFetch() {
         ":::####:##::",
     };
 
+
     char info[8][24];
 
     snprintf(info[0], 24, "cpu: LX7 dual @240MHz");
 
     uint32_t freeK = ESP.getFreeHeap() / 1024;
-    snprintf(info[1], 24, "ram: %luK free / 512K", freeK);
+    snprintf(info[1], 24, "ram: %luK free", freeK);
 
     uint32_t flashMB = ESP.getFlashChipSize() / (1024 * 1024);
     snprintf(info[2], 24, "flash: %luMB NOR", flashMB);
@@ -727,6 +768,34 @@ void Shell::cmdBeep(const char* args) {
     M5.Speaker.tone(freq, dur);
 }
 
+void Shell::cmdUsbSd() {
+    extern USBMSC msc;
+    extern bool usbSdActive;
+
+    usbSdActive = true;
+    msc.mediaPresent(true);
+
+    _con->init();
+    _con->print("USB SD card reader active", COL_OK);
+    _con->print("SD mounted on PC", COL_ORANGE);
+    _con->print("", COL_BG);
+    _con->print("press any key to exit", COL_DIM);
+    _con->redraw();
+
+    while (true) {
+        M5Cardputer.update();
+        if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) break;
+        delay(10);
+    }
+
+    msc.mediaPresent(false);
+    usbSdActive = false;
+
+    _con->init();
+    _con->print("USB SD mode exited", COL_OK);
+    _con->redraw();
+}
+
 int Shell::collectPartitions(FlashPart* out, int max) {
     int count = 0;
     for (int t = 0; t <= 1 && count < max; t++) {
@@ -754,9 +823,7 @@ int Shell::collectPartitions(FlashPart* out, int max) {
 }
 
 void Shell::drawPartitionMap() {
-    FlashPart parts[MAX_PARTS];
-    int count = collectPartitions(parts, MAX_PARTS);
-    if (count == 0) return;
+    if (_pendingCount == 0) return;
 
     const uint32_t flashSize = 0x800000;
     const int barCols = Console::COLS;
@@ -765,47 +832,115 @@ void Shell::drawPartitionMap() {
     uint16_t gapColor = C565(25, 25, 25);
     for (int i = 0; i < barCols; i++) colors[i] = gapColor;
 
-    for (int i = 0; i < count; i++) {
-        int c0 = (int)((uint64_t)parts[i].offset * barCols / flashSize);
-        int c1 = (int)((uint64_t)(parts[i].offset + parts[i].size) * barCols / flashSize);
+    for (int i = 0; i < _pendingCount; i++) {
+        int c0 = (int)((uint64_t)_pending[i].offset * barCols / flashSize);
+        int c1 = (int)((uint64_t)(_pending[i].offset + _pending[i].size) * barCols / flashSize);
         if (c1 <= c0) c1 = c0 + 1;
         if (c1 > barCols) c1 = barCols;
-        uint16_t col = partColor(parts[i].type, parts[i].subtype);
+        uint16_t col = partColor(_pending[i].type, _pending[i].subtype);
         for (int c = c0; c < c1; c++) colors[c] = col;
     }
 
     _con->printBar(colors, barCols);
 }
 
-void Shell::cmdPartInfo() {
-    FlashPart parts[MAX_PARTS];
-    int count = collectPartitions(parts, MAX_PARTS);
+void Shell::initPending() {
+    _pendingCount = 0;
+    uint8_t raw[32];
+    for (int i = 0; i < MAX_PARTS; i++) {
+        esp_flash_read(NULL, raw, 0x8000 + i * 32, 32);
+        if (raw[0] != 0xAA || raw[1] != 0x50) break;
+        _pending[_pendingCount].type = raw[2];
+        _pending[_pendingCount].subtype = raw[3];
+        memcpy(&_pending[_pendingCount].offset, &raw[4], 4);
+        memcpy(&_pending[_pendingCount].size, &raw[8], 4);
+        memcpy(_pending[_pendingCount].label, &raw[12], 16);
+        _pending[_pendingCount].label[16] = '\0';
+        _pendingCount++;
+    }
+    _pendingDirty = false;
+}
 
-    drawPartitionMap();
+void Shell::sortPending() {
+    for (int i = 0; i < _pendingCount - 1; i++)
+        for (int j = i + 1; j < _pendingCount; j++)
+            if (_pending[j].offset < _pending[i].offset) {
+                FlashPart tmp = _pending[i]; _pending[i] = _pending[j]; _pending[j] = tmp;
+            }
+}
 
-    _con->print("", COL_BG);
+bool Shell::isProtected(const char* label) {
+    return strcmp(label, "nvs") == 0 ||
+           strcmp(label, "otadata") == 0 ||
+           strcmp(label, "test") == 0;
+}
 
+uint32_t Shell::findGap(uint32_t size) {
+    sortPending();
+    uint32_t cursor = 0x9000;
+    for (int i = 0; i < _pendingCount; i++) {
+        uint32_t aligned = (cursor + 0xFFF) & ~0xFFF;
+        if (_pending[i].offset >= aligned + size)
+            return aligned;
+        cursor = _pending[i].offset + _pending[i].size;
+    }
+    uint32_t aligned = (cursor + 0xFFF) & ~0xFFF;
+    if (0x800000 >= aligned + size)
+        return aligned;
+    return 0;
+}
+
+void Shell::cmdPt(const char* args) {
+    char sub[16];
+    const char* rest = parseArg(args, sub, sizeof(sub));
+
+    if (strcmp(sub, "info") == 0) {
+        if (*rest) ptInfoFile(rest);
+        else ptInfo();
+    }
+    else if (strcmp(sub, "create") == 0) ptCreate(rest);
+    else if (strcmp(sub, "delete") == 0) ptDelete(rest);
+    else if (strcmp(sub, "resize") == 0) ptResize(rest);
+    else if (strcmp(sub, "write") == 0) {
+        char confirm[8];
+        parseArg(rest, confirm, sizeof(confirm));
+        if (strcmp(confirm, "yes") == 0) ptWrite();
+        else _con->print("usage: pt write yes", COL_RED);
+    }
+    else if (strcmp(sub, "reset") == 0) ptReset();
+    else {
+        _con->print("pt info [file]", COL_INFO);
+        _con->print("pt create <l> <type> <K>", COL_INFO);
+        _con->print("pt delete <label>", COL_INFO);
+        _con->print("pt resize <label> <K>", COL_INFO);
+        _con->print("pt write yes", COL_INFO);
+        _con->print("pt reset", COL_INFO);
+        _con->print("types: app fat spiffs nvs", COL_DIM);
+    }
+}
+
+void Shell::ptInfo() {
     const esp_partition_t* running = esp_ota_get_running_partition();
     char msg[48];
 
     uint32_t allocated = 0;
-    for (int i = 0; i < count; i++) {
-        const char* tp  = (parts[i].type == 0) ? "app" : "dat";
-        const char* sub = subtypeName(parts[i].type, parts[i].subtype);
-        int sizeK = parts[i].size / 1024;
-        allocated += parts[i].size;
+    for (int i = 0; i < _pendingCount; i++) {
+        const char* tp  = (_pending[i].type == 0) ? "app" : "dat";
+        const char* sub = subtypeName(_pending[i].type, _pending[i].subtype);
+        int sizeK = _pending[i].size / 1024;
+        allocated += _pending[i].size;
 
         char flags[16] = "";
-        if (parts[i].type == ESP_PARTITION_TYPE_APP) {
+        if (_pending[i].type == ESP_PARTITION_TYPE_APP) {
             const esp_partition_t* p = esp_partition_find_first(
-                (esp_partition_type_t)parts[i].type,
-                (esp_partition_subtype_t)parts[i].subtype,
-                parts[i].label);
+                (esp_partition_type_t)_pending[i].type,
+                (esp_partition_subtype_t)_pending[i].subtype,
+                _pending[i].label);
             if (p) {
                 uint32_t used = getAppImageSize(p);
                 if (used > 0) {
                     int usedK = (used + 1023) / 1024;
-                    if (running && parts[i].offset == running->address)
+                    if (running && _pending[i].offset == running->address)
                         snprintf(flags, sizeof(flags), " %dK *", usedK);
                     else
                         snprintf(flags, sizeof(flags), " %dK", usedK);
@@ -814,19 +949,296 @@ void Shell::cmdPartInfo() {
         }
 
         snprintf(msg, sizeof(msg), "%-8s %s/%-5s %5dK%s",
-                 parts[i].label, tp, sub, sizeK, flags);
-        _con->print(msg, partColor(parts[i].type, parts[i].subtype));
+                 _pending[i].label, tp, sub, sizeK, flags);
+        _con->print(msg, partColor(_pending[i].type, _pending[i].subtype));
     }
 
-    _con->print("", COL_BG);
     const uint32_t flashSize = 0x800000;
-    uint32_t reserved = (count > 0) ? parts[0].offset : 0;
+    uint32_t reserved = (_pendingCount > 0) ? _pending[0].offset : 0;
     uint32_t unalloc = flashSize - reserved - allocated;
     snprintf(msg, sizeof(msg), "flash: %dK  rsv: %dK  free: %dK",
              (int)(flashSize / 1024),
              (int)(reserved / 1024),
              (int)(unalloc / 1024));
     _con->print(msg, COL_DIM);
+    if (_pendingDirty)
+        _con->print("(pending changes)", COL_WARN);
+}
+
+void Shell::ptInfoFile(const char* args) {
+    char path[256];
+    resolvePath(args, path, sizeof(path));
+
+    File bin = SD.open(path, FILE_READ);
+    if (!bin) { _con->print("cannot open file", COL_RED); return; }
+
+    size_t fileSize = bin.size();
+    char msg[48];
+    snprintf(msg, sizeof(msg), "file: %dK", (int)(fileSize / 1024));
+    _con->print(msg, COL_DIM);
+
+    uint8_t ptMagic = 0;
+    if (fileSize > 0x8000) {
+        bin.seek(0x8000);
+        bin.read(&ptMagic, 1);
+    }
+
+    if (ptMagic == 0xAA && fileSize > 0x10000) {
+        _con->print("type: merged binary", COL_DIM);
+
+        BinPartEntry parts[MAX_BIN_PARTS];
+        int partCount = parseBinPartTable(bin, parts, MAX_BIN_PARTS);
+
+        if (partCount == 0) {
+            _con->print("no partitions found", COL_RED);
+            bin.close();
+            return;
+        }
+
+        for (int i = 0; i < partCount; i++) {
+            const char* tp = (parts[i].type == 0) ? "app" : "dat";
+            const char* sub = subtypeName(parts[i].type, parts[i].subtype);
+            int sizeK = parts[i].size / 1024;
+            bool inFile = (parts[i].offset + parts[i].size <= fileSize);
+
+            snprintf(msg, sizeof(msg), " %-8s %s/%-5s %5dK%s",
+                     parts[i].label, tp, sub, sizeK,
+                     inFile ? "" : " (no data)");
+            _con->print(msg, inFile ? COL_INFO : COL_ECHO);
+        }
+    } else {
+        uint8_t magic0;
+        bin.seek(0);
+        bin.read(&magic0, 1);
+        if (magic0 == 0xE9) {
+            _con->print("type: raw app", COL_DIM);
+            snprintf(msg, sizeof(msg), "size: %dK", (int)(fileSize / 1024));
+            _con->print(msg, COL_ORANGE);
+        } else {
+            _con->print("not a valid binary", COL_RED);
+        }
+    }
+
+    bin.close();
+}
+
+void Shell::ptCreate(const char* args) {
+    char label[17], typeStr[16], sizeStr[16];
+    const char* r1 = parseArg(args, label, sizeof(label));
+    const char* r2 = parseArg(r1, typeStr, sizeof(typeStr));
+    parseArg(r2, sizeStr, sizeof(sizeStr));
+
+    if (!label[0] || !typeStr[0] || !sizeStr[0]) {
+        _con->print("usage: pt create <l> <type> <K>", COL_RED);
+        return;
+    }
+
+    if (_pendingCount >= MAX_PARTS) {
+        _con->print("table full", COL_RED);
+        return;
+    }
+
+    for (int i = 0; i < _pendingCount; i++) {
+        if (strcmp(_pending[i].label, label) == 0) {
+            _con->print("label exists", COL_RED);
+            return;
+        }
+    }
+
+    uint8_t type, subtype;
+    if (strcmp(typeStr, "app") == 0) {
+        type = 0;
+        subtype = 0x10;
+        for (int i = 0; i < _pendingCount; i++)
+            if (_pending[i].type == 0 && _pending[i].subtype >= subtype && _pending[i].subtype < 0x20)
+                subtype = _pending[i].subtype + 1;
+    }
+    else if (strcmp(typeStr, "fat") == 0)      { type = 1; subtype = 0x81; }
+    else if (strcmp(typeStr, "spiffs") == 0)   { type = 1; subtype = 0x82; }
+    else if (strcmp(typeStr, "nvs") == 0)      { type = 1; subtype = 0x02; }
+    else if (strcmp(typeStr, "ota") == 0)      { type = 1; subtype = 0x00; }
+    else if (strcmp(typeStr, "coredump") == 0) { type = 1; subtype = 0x03; }
+    else {
+        _con->print("types: app fat spiffs nvs", COL_RED);
+        return;
+    }
+
+    uint32_t size = atoi(sizeStr) * 1024;
+    size = (size + 0xFFF) & ~0xFFF;
+    if (size == 0) { _con->print("invalid size", COL_RED); return; }
+
+    uint32_t offset = findGap(size);
+    if (offset == 0) {
+        _con->print("no gap large enough", COL_RED);
+        return;
+    }
+
+    FlashPart* p = &_pending[_pendingCount++];
+    strncpy(p->label, label, 16);
+    p->label[16] = '\0';
+    p->offset = offset;
+    p->size = size;
+    p->type = type;
+    p->subtype = subtype;
+    sortPending();
+    _pendingDirty = true;
+
+    char msg[48];
+    snprintf(msg, sizeof(msg), "%s @0x%lX %dK", label,
+             (unsigned long)offset, (int)(size / 1024));
+    _con->print(msg, COL_OK);
+}
+
+void Shell::ptDelete(const char* args) {
+    char label[17];
+    parseArg(args, label, sizeof(label));
+    if (!label[0]) { _con->print("usage: pt delete <label>", COL_RED); return; }
+
+    if (isProtected(label)) {
+        _con->print("protected partition", COL_RED);
+        return;
+    }
+
+    for (int i = 0; i < _pendingCount; i++) {
+        if (strcmp(_pending[i].label, label) == 0) {
+            for (int j = i; j < _pendingCount - 1; j++)
+                _pending[j] = _pending[j + 1];
+            _pendingCount--;
+            _pendingDirty = true;
+            _con->print("deleted (pending)", COL_OK);
+            return;
+        }
+    }
+    _con->print("not found", COL_RED);
+}
+
+void Shell::ptResize(const char* args) {
+    char label[17], sizeStr[16];
+    const char* rest = parseArg(args, label, sizeof(label));
+    parseArg(rest, sizeStr, sizeof(sizeStr));
+    if (!label[0] || !sizeStr[0]) {
+        _con->print("usage: pt resize <label> <K>", COL_RED);
+        return;
+    }
+
+    if (isProtected(label)) {
+        _con->print("protected partition", COL_RED);
+        return;
+    }
+
+    uint32_t newSize = atoi(sizeStr) * 1024;
+    newSize = (newSize + 0xFFF) & ~0xFFF;
+    if (newSize == 0) { _con->print("invalid size", COL_RED); return; }
+
+    sortPending();
+    for (int i = 0; i < _pendingCount; i++) {
+        if (strcmp(_pending[i].label, label) != 0) continue;
+
+        uint32_t maxEnd;
+        if (i + 1 < _pendingCount)
+            maxEnd = _pending[i + 1].offset;
+        else
+            maxEnd = 0x800000;
+
+        if (_pending[i].offset + newSize > maxEnd) {
+            char msg[48];
+            int maxK = (maxEnd - _pending[i].offset) / 1024;
+            snprintf(msg, sizeof(msg), "max: %dK", maxK);
+            _con->print(msg, COL_RED);
+            return;
+        }
+
+        _pending[i].size = newSize;
+        _pendingDirty = true;
+        char msg[48];
+        snprintf(msg, sizeof(msg), "%s now %dK (pending)", label, (int)(newSize / 1024));
+        _con->print(msg, COL_OK);
+        return;
+    }
+    _con->print("not found", COL_RED);
+}
+
+void Shell::ptWrite() {
+    _con->print("only proceed if you know", COL_WARN);
+    _con->print("what you are doing", COL_WARN);
+    _con->print("writing partition table...", COL_WARN);
+    _con->redraw();
+
+    sortPending();
+
+    static uint8_t table[4096];
+    memset(table, 0xFF, sizeof(table));
+
+    int offset = 0;
+    for (int i = 0; i < _pendingCount; i++) {
+        uint8_t entry[32];
+        memset(entry, 0, 32);
+        entry[0] = 0xAA;
+        entry[1] = 0x50;
+        entry[2] = _pending[i].type;
+        entry[3] = _pending[i].subtype;
+        memcpy(&entry[4], &_pending[i].offset, 4);
+        memcpy(&entry[8], &_pending[i].size, 4);
+        strncpy((char*)&entry[12], _pending[i].label, 16);
+        memcpy(&table[offset], entry, 32);
+        offset += 32;
+    }
+
+    mbedtls_md5_context ctx;
+    mbedtls_md5_init(&ctx);
+    mbedtls_md5_starts(&ctx);
+    mbedtls_md5_update(&ctx, table, offset);
+    uint8_t hash[16];
+    mbedtls_md5_finish(&ctx, hash);
+    mbedtls_md5_free(&ctx);
+
+    memset(&table[offset], 0xFF, 32);
+    table[offset] = 0xEB;
+    table[offset + 1] = 0xEB;
+    memcpy(&table[offset + 16], hash, 16);
+
+    esp_err_t err = esp_flash_erase_region(NULL, 0x8000, 0x1000);
+    if (err != ESP_OK) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "erase: %s", esp_err_to_name(err));
+        _con->print(msg, COL_RED);
+        return;
+    }
+
+    err = esp_flash_write(NULL, table, 0x8000, 0x1000);
+    if (err != ESP_OK) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "write: %s", esp_err_to_name(err));
+        _con->print(msg, COL_RED);
+        return;
+    }
+
+    static uint8_t verify[4096];
+    esp_flash_read(NULL, verify, 0x8000, 0x1000);
+    int mismatch = 0;
+    int checkLen = offset + 32;
+    for (int i = 0; i < checkLen; i++) {
+        if (verify[i] != table[i]) mismatch++;
+    }
+
+    if (mismatch > 0) {
+        char msg[36];
+        snprintf(msg, sizeof(msg), "verify: %d bytes differ", mismatch);
+        _con->print(msg, COL_RED);
+        _con->redraw();
+        return;
+    }
+
+    _con->print("verified ok", COL_OK);
+    _con->print("rebooting...", COL_WARN);
+    _con->redraw();
+    delay(500);
+    esp_restart();
+}
+
+void Shell::ptReset() {
+    initPending();
+    _con->print("pending changes discarded", COL_OK);
 }
 
 void Shell::cmdErase(const char* args) {
@@ -875,8 +1287,8 @@ int Shell::parseBinPartTable(File& f, BinPartEntry* entries, int maxEntries) {
         if (raw[0] == 0xEB) break;
         if (raw[0] != 0xAA) break;
 
-        entries[count].type = raw[1];
-        entries[count].subtype = raw[2];
+        entries[count].type = raw[2];
+        entries[count].subtype = raw[3];
         memcpy(&entries[count].offset, &raw[4], 4);
         memcpy(&entries[count].size, &raw[8], 4);
         memcpy(entries[count].label, &raw[12], 16);
@@ -936,96 +1348,20 @@ bool Shell::writeFileRegion(File& f, const esp_partition_t* part, uint32_t fileO
     return true;
 }
 
-void Shell::cmdBininfo(const char* args) {
-    if (*args == '\0') { _con->print("usage: bininfo <file.bin>", COL_RED); return; }
-
-    char path[256];
-    resolvePath(args, path, sizeof(path));
-
-    File bin = SD.open(path, FILE_READ);
-    if (!bin) { _con->print("cannot open file", COL_RED); return; }
-
-    size_t fileSize = bin.size();
-    char msg[48];
-    snprintf(msg, sizeof(msg), "file: %dK", (int)(fileSize / 1024));
-    _con->print(msg, COL_DIM);
-
-    const esp_partition_t* ota = esp_partition_find_first(
-        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-    uint32_t otaSize = ota ? ota->size : 0;
-
-    uint8_t ptMagic = 0;
-    if (fileSize > 0x8000) {
-        bin.seek(0x8000);
-        bin.read(&ptMagic, 1);
-    }
-
-    if (ptMagic == 0xAA && fileSize > 0x10000) {
-        _con->print("type: merged binary", COL_DIM);
-
-        BinPartEntry parts[MAX_BIN_PARTS];
-        int partCount = parseBinPartTable(bin, parts, MAX_BIN_PARTS);
-
-        if (partCount == 0) {
-            _con->print("no partitions found", COL_RED);
-            bin.close();
-            return;
-        }
-
-        uint32_t appSize = 0;
-        for (int i = 0; i < partCount; i++) {
-            const char* tp = (parts[i].type == 0) ? "app" : "dat";
-            const char* sub = subtypeName(parts[i].type, parts[i].subtype);
-            int sizeK = parts[i].size / 1024;
-
-            bool inFile = (parts[i].offset + parts[i].size <= fileSize);
-
-            snprintf(msg, sizeof(msg), " %-8s %s/%-5s %5dK%s",
-                     parts[i].label, tp, sub, sizeK,
-                     inFile ? "" : " (no data)");
-            _con->print(msg, inFile ? COL_INFO : COL_ECHO);
-
-            if (parts[i].type == 0 && parts[i].subtype != 0x20) {
-                appSize = parts[i].size;
-                if (parts[i].offset + appSize > fileSize)
-                    appSize = fileSize - parts[i].offset;
-            }
-        }
-
-        _con->print("", COL_BG);
-        if (appSize > 0 && otaSize > 0) {
-            snprintf(msg, sizeof(msg), "app: %dK  ota_0: %dK",
-                     (int)(appSize / 1024), (int)(otaSize / 1024));
-            _con->print(msg, (appSize <= otaSize) ? COL_OK : COL_WARN);
-            _con->print(
-                (appSize <= otaSize) ? "fits in ota_0" : "exceeds ota_0, will truncate",
-                (appSize <= otaSize) ? COL_OK : COL_WARN);
-        }
-    } else {
-        uint8_t magic0;
-        bin.seek(0);
-        bin.read(&magic0, 1);
-        if (magic0 == 0xE9) {
-            _con->print("type: raw app", COL_DIM);
-            snprintf(msg, sizeof(msg), "app: %dK  ota_0: %dK",
-                     (int)(fileSize / 1024), (int)(otaSize / 1024));
-            _con->print(msg, (fileSize <= otaSize) ? COL_OK : COL_WARN);
-            _con->print(
-                (fileSize <= otaSize) ? "fits in ota_0" : "exceeds ota_0, will truncate",
-                (fileSize <= otaSize) ? COL_OK : COL_WARN);
-        } else {
-            _con->print("not a valid binary", COL_RED);
-        }
-    }
-
-    bin.close();
-}
-
 void Shell::cmdFlash(const char* args) {
-    if (*args == '\0') { _con->print("usage: flash <file.bin>", COL_RED); return; }
+    if (*args == '\0') { _con->print("usage: flash <file> [label|nospiffs]", COL_RED); return; }
+
+    char pathArg[256], arg2[32], arg3[32];
+    const char* r1 = parseArg(args, pathArg, sizeof(pathArg));
+    const char* r2 = parseArg(r1, arg2, sizeof(arg2));
+    parseArg(r2, arg3, sizeof(arg3));
+
+    bool noSpiffs = (strcmp(arg2, "nospiffs") == 0 || strcmp(arg3, "nospiffs") == 0);
+    const char* targetLabel = nullptr;
+    if (arg2[0] && strcmp(arg2, "nospiffs") != 0) targetLabel = arg2;
 
     char path[256];
-    resolvePath(args, path, sizeof(path));
+    resolvePath(pathArg, path, sizeof(path));
 
     File bin = SD.open(path, FILE_READ);
     if (!bin) { _con->print("cannot open file", COL_RED); return; }
@@ -1033,9 +1369,22 @@ void Shell::cmdFlash(const char* args) {
     size_t fileSize = bin.size();
     if (fileSize == 0) { _con->print("empty file", COL_RED); bin.close(); return; }
 
-    const esp_partition_t* ota = esp_partition_find_first(
-        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-    if (!ota) { _con->print("ota_0 not found", COL_RED); bin.close(); return; }
+    const esp_partition_t* target;
+    if (targetLabel) {
+        target = esp_partition_find_first(
+            ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, targetLabel);
+        if (!target) {
+            char msg[48];
+            snprintf(msg, sizeof(msg), "%s: not found", targetLabel);
+            _con->print(msg, COL_RED);
+            bin.close();
+            return;
+        }
+    } else {
+        target = esp_partition_find_first(
+            ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+        if (!target) { _con->print("ota_0 not found", COL_RED); bin.close(); return; }
+    }
 
     char msg[48];
 
@@ -1119,25 +1468,25 @@ void Shell::cmdFlash(const char* args) {
         }
     }
 
-    if (appSize > ota->size) {
-        snprintf(msg, sizeof(msg), "app %dK > ota_0 %dK, truncating",
-                 (int)(appSize/1024), (int)(ota->size/1024));
+    if (appSize > target->size) {
+        snprintf(msg, sizeof(msg), "app %dK > %s %dK, truncating",
+                 (int)(appSize/1024), target->label, (int)(target->size/1024));
         _con->print(msg, COL_WARN);
-        appSize = ota->size;
+        appSize = target->size;
     }
 
-    snprintf(msg, sizeof(msg), "flashing %dK to ota_0...", (int)(appSize/1024));
+    snprintf(msg, sizeof(msg), "flashing %dK to %s...", (int)(appSize/1024), target->label);
     _con->print(msg, COL_WARN);
     _con->redraw();
 
-    if (!writeFileRegion(bin, ota, appOffset, appSize)) {
+    if (!writeFileRegion(bin, target, appOffset, appSize)) {
         _con->print("app flash failed", COL_RED);
         bin.close();
         return;
     }
     _con->print("app: ok", COL_OK);
 
-    if (hasSpiffs) {
+    if (hasSpiffs && !noSpiffs) {
         const esp_partition_t* spPart = esp_partition_find_first(
             ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, NULL);
         if (spPart) {
@@ -1170,18 +1519,32 @@ void Shell::cmdFlash(const char* args) {
     _con->redraw();
 }
 
-void Shell::cmdLaunch() {
-    const esp_partition_t* ota = esp_partition_find_first(
-        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
-    if (!ota) { _con->print("ota_0 not found", COL_RED); return; }
+void Shell::cmdLaunch(const char* args) {
+    const esp_partition_t* target;
+    if (*args) {
+        char label[17];
+        parseArg(args, label, sizeof(label));
+        target = esp_partition_find_first(
+            ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, label);
+        if (!target) {
+            char msg[48];
+            snprintf(msg, sizeof(msg), "%s: not found", label);
+            _con->print(msg, COL_RED);
+            return;
+        }
+    } else {
+        target = esp_partition_find_first(
+            ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+        if (!target) { _con->print("ota_0 not found", COL_RED); return; }
+    }
 
     uint8_t magic;
-    if (esp_partition_read(ota, 0, &magic, 1) != ESP_OK || magic != 0xE9) {
+    if (esp_partition_read(target, 0, &magic, 1) != ESP_OK || magic != 0xE9) {
         _con->print("nothing flashed", COL_RED);
         return;
     }
 
-    esp_err_t err = esp_ota_set_boot_partition(ota);
+    esp_err_t err = esp_ota_set_boot_partition(target);
     if (err != ESP_OK) {
         char msg[48];
         snprintf(msg, sizeof(msg), "set_boot: %s", esp_err_to_name(err));
@@ -1189,7 +1552,9 @@ void Shell::cmdLaunch() {
         return;
     }
 
-    _con->print("launching...", COL_WARN);
+    char msg[48];
+    snprintf(msg, sizeof(msg), "launching %s...", target->label);
+    _con->print(msg, COL_WARN);
     _con->print("reset btn = back here", COL_DIM);
     _con->redraw();
     delay(800);

@@ -3,12 +3,38 @@
 #include <SD.h>
 #include <Wire.h>
 #include <esp_ota_ops.h>
+#include "USB.h"
+#include "USBMSC.h"
 #include "console.h"
 #include "shell.h"
 
 Console con;
 Shell shell;
 static bool sdReady = false;
+USBMSC msc;
+bool usbSdActive = false;
+
+static int32_t mscRead(uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize) {
+    if (!usbSdActive) return -1;
+    uint32_t count = bufsize / 512;
+    for (uint32_t i = 0; i < count; i++) {
+        if (!SD.readRAW((uint8_t*)buffer + i * 512, lba + i)) return -1;
+    }
+    return bufsize;
+}
+
+static int32_t mscWrite(uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize) {
+    if (!usbSdActive) return -1;
+    uint32_t count = bufsize / 512;
+    for (uint32_t i = 0; i < count; i++) {
+        if (!SD.writeRAW(buffer + i * 512, lba + i)) return -1;
+    }
+    return bufsize;
+}
+
+static bool mscStartStop(uint8_t power_condition, bool start, bool load_eject) {
+    return true;
+}
 
 #define SCROLL_ADDR        0x40
 #define SCROLL_INC_REG     0x50
@@ -95,7 +121,7 @@ static void showBootScreen() {
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
     M5.Display.print(ver);
 
-    delay(400);
+    delay(1500);
 }
 
 static int32_t scrollReadInc() {
@@ -128,6 +154,19 @@ void setup() {
 
     SPI.begin(40, 39, 14, 12);
     if (SD.begin(12, SPI, 25000000)) sdReady = true;
+
+    if (sdReady) {
+        msc.vendorID("M5Stack");
+        msc.productID("CRUB");
+        msc.productRevision("2.6");
+        msc.onRead(mscRead);
+        msc.onWrite(mscWrite);
+        msc.onStartStop(mscStartStop);
+        msc.mediaPresent(false);
+        msc.begin(SD.cardSize() / 512, 512);
+        USB.productName("crub");
+        USB.begin();
+    }
 
     shell.init(&con);
 

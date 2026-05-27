@@ -45,12 +45,12 @@ private:
     void cmdI2cScan();
     void cmdMd5(const char* args);
     void cmdBeep(const char* args);
+    void cmdUsbSd();
 
     void cmdFlash(const char* args);
-    void cmdBininfo(const char* args);
-    void cmdLaunch();
+    void cmdLaunch(const char* args);
     void cmdReboot();
-    void cmdPartInfo();
+    void cmdPt(const char* args);
     void cmdErase(const char* args);
 
     struct Alias { char name[16]; char cmd[64]; };
@@ -86,6 +86,21 @@ private:
     static const int MAX_PARTS = 16;
     int collectPartitions(FlashPart* out, int max);
     void drawPartitionMap();
+
+    FlashPart _pending[MAX_PARTS];
+    int _pendingCount = 0;
+    bool _pendingDirty = false;
+    void initPending();
+    void sortPending();
+    uint32_t findGap(uint32_t size);
+    void ptInfo();
+    void ptInfoFile(const char* args);
+    void ptCreate(const char* args);
+    void ptDelete(const char* args);
+    void ptResize(const char* args);
+    void ptWrite();
+    void ptReset();
+    bool isProtected(const char* label);
 
     void findRecurse(const char* dir, const char* pattern, int depth);
     void treeRecurse(const char* dir, int depth, int maxDepth);
