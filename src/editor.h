@@ -11,12 +11,12 @@ private:
     static const int MAX_LINES = 512;
     static const int MAX_LINE_LEN = 128;
     static const int ED_ROWS = 14;
-    static const int ED_COLS = 36;
-    static const int LINENUM_W = 4;
-    static const int TEXT_COLS = 32;
-    static const int ED_X = 10;
-    static const int TEXT_X = 34;
-    static const int ED_Y = 10;
+    static const int ED_COLS = 40;
+    static const int LINENUM_W = 2;
+    static const int TEXT_COLS = 38;
+    static const int ED_X = 0;
+    static const int TEXT_X = 12;
+    static const int ED_Y = 0;
     static const int STATUS_Y = 125;
     static const int STATUS_H = 10;
 

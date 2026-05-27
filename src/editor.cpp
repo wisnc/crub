@@ -193,7 +193,7 @@ void Editor::drawText() {
         }
 
         char num[5];
-        snprintf(num, sizeof(num), "%3d ", lineIdx + 1);
+        snprintf(num, sizeof(num), "%2d ", lineIdx + 1);
         M5.Display.setTextColor(COL_DIM, COL_BG);
         M5.Display.setCursor(ED_X, y);
         M5.Display.print(num);

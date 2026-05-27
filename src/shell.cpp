@@ -483,7 +483,7 @@ void Shell::cmdFetch() {
     uint32_t flashMB = ESP.getFlashChipSize() / (1024 * 1024);
     snprintf(info[2], 24, "flash: %luMB NOR", flashMB);
 
-    snprintf(info[3], 24, "boot: crub v2.6");
+    snprintf(info[3], 24, "boot: crub v2.6.5");
 
     File fwf = SD.open("/.crub_fw", FILE_READ);
     if (fwf && fwf.size() > 0 && fwf.size() < 20) {

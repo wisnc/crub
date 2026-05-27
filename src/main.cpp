@@ -117,7 +117,7 @@ static void showBootScreen() {
     }
 
     M5.Display.setTextColor(COL_ECHO, COL_BG);
-    const char* ver = "v2.6";
+    const char* ver = "v2.6.5";
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
     M5.Display.print(ver);
 
@@ -158,7 +158,7 @@ void setup() {
     if (sdReady) {
         msc.vendorID("M5Stack");
         msc.productID("CRUB");
-        msc.productRevision("2.6");
+        msc.productRevision("2.6.5");
         msc.onRead(mscRead);
         msc.onWrite(mscWrite);
         msc.onStartStop(mscStartStop);
@@ -179,7 +179,7 @@ void setup() {
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
     if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
 
-    con.print("crub v2.6", COL_ORANGE);
+    con.print("crub v2.6.5", COL_ORANGE);
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running) {
