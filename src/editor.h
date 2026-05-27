@@ -10,7 +10,7 @@ public:
 private:
     static const int MAX_LINES = 512;
     static const int MAX_LINE_LEN = 128;
-    static const int ED_ROWS = 14;
+    static const int ED_ROWS = 15;
     static const int ED_COLS = 40;
     static const int LINENUM_W = 2;
     static const int TEXT_COLS = 38;
