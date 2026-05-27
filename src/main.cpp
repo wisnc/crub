@@ -121,7 +121,7 @@ static void showBootScreen() {
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
     M5.Display.print(ver);
 
-    delay(1500);
+    delay(400);
 }
 
 static int32_t scrollReadInc() {
