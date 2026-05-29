@@ -160,11 +160,7 @@ display can also be controlled with `bright <0-255>`, Fn + _ and Fn + = for dimm
 - added system commands: `uptime`, `free`, `i2cscan`, `md5`, `beep`
 - added scripting: `run`, `echo`, `sleep`, `#` comments
 - added `/.crub_boot` boot script. runs on every boot if it exists on SD
-- added partition management with `pt` command (info, create, delete, resize)
-- added `flash <file> <label>` to target specific partitions
-- added `launch <label>` to boot specific app partitions
-- shrunk test partition from 1536K to 704K. ota_0 is now 5824K
-- `partinfo` and `bininfo` replaced by `pt info [file]`
+
 
 ### 2.5
 
