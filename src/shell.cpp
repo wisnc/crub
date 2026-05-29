@@ -256,6 +256,8 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "free") == 0)     cmdFree();
     else if (strcmp(cmd, "i2cscan") == 0)  cmdI2cScan();
     else if (strcmp(cmd, "usbsd") == 0)    cmdUsbSd();
+    else if (strcmp(cmd, "bright") == 0)   cmdBright(args);
+    else if (strcmp(cmd, "sd") == 0)       cmdSdInit();
     else if (strcmp(cmd, "clear") == 0)    cmdClear();
     else if (strcmp(cmd, "flash") == 0)    cmdFlash(args);
     else if (strcmp(cmd, "launch") == 0)   cmdLaunch(args);
@@ -442,8 +444,8 @@ void Shell::cmdHelp() {
     _con->print(" wc hex find tree edit", COL_INFO);
     _con->print("ota:", COL_INFO);
     _con->print(" flash [file] [label]", COL_INFO);
-    _con->print(" flash [file] nospiffs", COL_INFO);
-    _con->print(" launch [label]", COL_INFO);
+    _con->print(" flash [file] -nospiffs", COL_INFO);
+    _con->print(" launch [-f] [label]", COL_INFO);
     _con->print(" reboot  erase <label>", COL_INFO);
     _con->print("partition:", COL_INFO);
     _con->print(" pt info [file]", COL_INFO);
@@ -455,6 +457,7 @@ void Shell::cmdHelp() {
     _con->print("system:", COL_INFO);
     _con->print(" fetch free uptime md5", COL_INFO);
     _con->print(" i2cscan beep usbsd =expr", COL_INFO);
+    _con->print(" bright <0-255> sd", COL_INFO);
     _con->print("chain: cmd1 && cmd2", COL_INFO);
     _con->print("alias [name] [\"cmd\"]", COL_INFO);
     _con->print("other: clear help", COL_INFO);
@@ -483,7 +486,7 @@ void Shell::cmdFetch() {
     uint32_t flashMB = ESP.getFlashChipSize() / (1024 * 1024);
     snprintf(info[2], 24, "flash: %luMB NOR", flashMB);
 
-    snprintf(info[3], 24, "boot: crub v2.6.5");
+    snprintf(info[3], 24, "boot: crub 2.6.6");
 
     File fwf = SD.open("/.crub_fw", FILE_READ);
     if (fwf && fwf.size() > 0 && fwf.size() < 20) {
@@ -794,6 +797,42 @@ void Shell::cmdUsbSd() {
     _con->init();
     _con->print("USB SD mode exited", COL_OK);
     _con->redraw();
+}
+
+void Shell::cmdBright(const char* args) {
+    extern uint8_t brightness;
+    if (*args) {
+        int val = atoi(args);
+        if (val < 0) val = 0;
+        if (val > 255) val = 255;
+        brightness = val;
+        M5.Display.setBrightness(brightness);
+    }
+    char msg[24];
+    snprintf(msg, sizeof(msg), "brightness: %d", brightness);
+    _con->print(msg, COL_ORANGE);
+}
+
+void Shell::cmdSdInit() {
+    SD.end();
+    SPI.begin(40, 39, 14, 12);
+    bool ok = SD.begin(12, SPI, 25000000);
+    if (ok) {
+        sdcard_type_t ct = SD.cardType();
+        float sizeG = SD.cardSize() / (1024.0f * 1024.0f * 1024.0f);
+        const char* ctn = (ct == CARD_SDHC) ? "SDHC" :
+                          (ct == CARD_SD)   ? "SD" :
+                          (ct == CARD_MMC)  ? "MMC" : "?";
+        char msg[24];
+        snprintf(msg, sizeof(msg), "SD: ok (%.1fG %s)", sizeG, ctn);
+        _con->print(msg, COL_OK);
+        loadAliases();
+        char amsg[24];
+        snprintf(amsg, sizeof(amsg), "aliases: %d loaded", _aliasCount);
+        _con->print(amsg, COL_DIM);
+    } else {
+        _con->print("SD: not found", COL_RED);
+    }
 }
 
 int Shell::collectPartitions(FlashPart* out, int max) {
@@ -1349,16 +1388,16 @@ bool Shell::writeFileRegion(File& f, const esp_partition_t* part, uint32_t fileO
 }
 
 void Shell::cmdFlash(const char* args) {
-    if (*args == '\0') { _con->print("usage: flash <file> [label|nospiffs]", COL_RED); return; }
+    if (*args == '\0') { _con->print("usage: flash <file> [label|-nospiffs]", COL_RED); return; }
 
     char pathArg[256], arg2[32], arg3[32];
     const char* r1 = parseArg(args, pathArg, sizeof(pathArg));
     const char* r2 = parseArg(r1, arg2, sizeof(arg2));
     parseArg(r2, arg3, sizeof(arg3));
 
-    bool noSpiffs = (strcmp(arg2, "nospiffs") == 0 || strcmp(arg3, "nospiffs") == 0);
+    bool noSpiffs = (strcmp(arg2, "-nospiffs") == 0 || strcmp(arg3, "-nospiffs") == 0);
     const char* targetLabel = nullptr;
-    if (arg2[0] && strcmp(arg2, "nospiffs") != 0) targetLabel = arg2;
+    if (arg2[0] && strcmp(arg2, "-nospiffs") != 0) targetLabel = arg2;
 
     char path[256];
     resolvePath(pathArg, path, sizeof(path));
@@ -1520,10 +1559,18 @@ void Shell::cmdFlash(const char* args) {
 }
 
 void Shell::cmdLaunch(const char* args) {
+    bool fast = false;
+    const char* label = nullptr;
+    char arg1[17], arg2[17];
+    const char* r = parseArg(args, arg1, sizeof(arg1));
+    parseArg(r, arg2, sizeof(arg2));
+
+    if (strcmp(arg1, "-f") == 0) { fast = true; if (arg2[0]) label = arg2; }
+    else if (strcmp(arg2, "-f") == 0) { fast = true; if (arg1[0]) label = arg1; }
+    else if (arg1[0]) label = arg1;
+
     const esp_partition_t* target;
-    if (*args) {
-        char label[17];
-        parseArg(args, label, sizeof(label));
+    if (label) {
         target = esp_partition_find_first(
             ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, label);
         if (!target) {
@@ -1552,12 +1599,14 @@ void Shell::cmdLaunch(const char* args) {
         return;
     }
 
-    char msg[48];
-    snprintf(msg, sizeof(msg), "launching %s...", target->label);
-    _con->print(msg, COL_WARN);
-    _con->print("reset btn = back here", COL_DIM);
-    _con->redraw();
-    delay(800);
+    if (!fast) {
+        char msg[48];
+        snprintf(msg, sizeof(msg), "launching %s...", target->label);
+        _con->print(msg, COL_WARN);
+        _con->print("reset btn = back here", COL_DIM);
+        _con->redraw();
+        delay(800);
+    }
 
     esp_restart();
 }

@@ -46,6 +46,8 @@ private:
     void cmdMd5(const char* args);
     void cmdBeep(const char* args);
     void cmdUsbSd();
+    void cmdBright(const char* args);
+    void cmdSdInit();
 
     void cmdFlash(const char* args);
     void cmdLaunch(const char* args);

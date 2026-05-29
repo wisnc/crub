@@ -117,7 +117,7 @@ static void showBootScreen() {
     }
 
     M5.Display.setTextColor(COL_ECHO, COL_BG);
-    const char* ver = "v2.6.5";
+    const char* ver = "2.6.6";
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
     M5.Display.print(ver);
 
@@ -146,19 +146,28 @@ void setup() {
     M5.Display.setBrightness(brightness);
     pinMode(BTN_G0, INPUT_PULLUP);
 
-    showBootScreen();
-
-    con.init();
-
     pinMode(5, INPUT_PULLUP);
 
     SPI.begin(40, 39, 14, 12);
     if (SD.begin(12, SPI, 25000000)) sdReady = true;
 
+    const esp_partition_t* otadata = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
+    if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
+
+    if (sdReady && SD.exists("/.crub_boot")) {
+        shell.init(&con);
+        shell.process("run /.crub_boot");
+    }
+
+    showBootScreen();
+
+    con.init();
+
     if (sdReady) {
         msc.vendorID("M5Stack");
         msc.productID("CRUB");
-        msc.productRevision("2.6.5");
+        msc.productRevision("2.6.6");
         msc.onRead(mscRead);
         msc.onWrite(mscWrite);
         msc.onStartStop(mscStartStop);
@@ -175,11 +184,7 @@ void setup() {
     scrollReady = (Wire.endTransmission() == 0);
     if (scrollReady) scrollReadInc();
 
-    const esp_partition_t* otadata = esp_partition_find_first(
-        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
-    if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
-
-    con.print("crub v2.6.5", COL_ORANGE);
+    con.print("crub 2.6.6", COL_ORANGE);
 
     const esp_partition_t* running = esp_ota_get_running_partition();
     if (running) {
@@ -190,11 +195,6 @@ void setup() {
     }
 
     shell.process("fetch");
-
-    if (SD.exists("/.crub_boot")) {
-        shell.process("run /.crub_boot");
-    }
-
     con.redraw();
 }
 
