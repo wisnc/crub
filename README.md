@@ -74,7 +74,7 @@ aliases can be externally edited (or with the built in editor) and is located as
 create aliases for flashing and launch: e.g. shortcut flash and launch bruce as "br"
 
 ```
-alias br "bruce /binaries/bruce.bin && launch"
+alias br "flash /binaries/bruce.bin && launch"
 ```
 
 view binary partition scheme
@@ -83,21 +83,29 @@ view binary partition scheme
 pt info /path/to/binary.bin
 ```
 
-view current partition scheme
-
-```
-pt info
-```
-
 run scripts from SD
 
 ```
 run /path/to/script.sh
 ```
 
-scripts are just text files with one command per line. lines starting with `#` are comments. you can use `echo`, `sleep`, and any other crub command inside them
+scripts are just text files with one command per line. lines starting with `#` are comments. you can use `echo`, `sleep`, and any other crub command inside them. output redirection works with `>` and `>>`
+
+```
+echo hello > /notes/test.txt
+echo second line >> /notes/test.txt
+ls /binaries > /logs/filelist.txt
+```
 
 boot scripts run automatically if `/.crub_boot` exists on the SD card
+
+### fast firmware boot
+
+write `launch -f` to `/.crub_boot` and crub will skip the boot screen and launch installed firmware instantly on power on. remove the SD card to enter crub normally
+
+```
+echo launch -f > /.crub_boot
+```
 
 you can also quickly do calculations. start the expression with '='. for example
 
@@ -114,18 +122,9 @@ you can also quickly do calculations. start the expression with '='. for example
 30
 ```
 
-just like UNIX, redirect also works 
-
-```
-echo hello world > /path/file.txt
-echo second line >> /path/file.txt
-```
-first command overwrites, and the second command appends
-
-
 commands can be viewed with `help`
 
-display can also be controlled with Fn + _ and Fn + = for dimmer and brighter display. also Btn0 toggles display to save battery
+display can also be controlled with `bright <0-255>`, Fn + _ and Fn + = for dimmer and brighter display. also Btn0 toggles display to save battery
 
 ### editor
 
@@ -145,64 +144,63 @@ display can also be controlled with Fn + _ and Fn + = for dimmer and brighter di
 
 `Opt + ;` move to top of the file
 
-### USB
-
-run command `usbsd` to enter usb mode. plug in to PC to mount SD from the cardputer itself
-
 ---
 
 ## Version History / Changelog
 
-### v2.6.5
+### 2.6.6
 
-- added `usbsd`
+- added `bright <0-255>` command for display brightness control
+- added `sd` command to reinitialize SD card and reload aliases without rebooting
+- added `launch -f` flag for instant launch with no delay
 
-### v2.6
+### 2.6
 
 - added file utilities: `head`, `find`, `tree`, `wc`, `hex`
 - added system commands: `uptime`, `free`, `i2cscan`, `md5`, `beep`
 - added scripting: `run`, `echo`, `sleep`, `#` comments
 - added `/.crub_boot` boot script. runs on every boot if it exists on SD
+- added partition management with `pt` command (info, create, delete, resize)
+- added `flash <file> <label>` to target specific partitions
+- added `launch <label>` to boot specific app partitions
 - shrunk test partition from 1536K to 704K. ota_0 is now 5824K
-- partinfo now shows unallocated flash space
-- updated help to show all commands
+- `partinfo` and `bininfo` replaced by `pt info [file]`
 
-### v2.5
+### 2.5
 
 - added basic calculator feature
 
-
-### v2.4
+### 2.4
 
 - fixed an issue: aliases only having 16 entries as limit. now it is practically infinite
 
-### v2.3b
+### 2.3b
 
 - added Cardputer v1.1 support. thanks u/First-Preference5831
 
-### v2.3
+### 2.3
 
 - added fetch
 
-### v2.2
+### 2.2
 
 - fixed an issue where larger binaries are unflashable. new functionality to view binary partition scheme `bininfo /path/to/binary.bin`
 
-### v2.1
+### 2.1
 
 - fixed an issue where having a LoRa Cap (or any Cap on that matter) interferes with reading the SD on boot
 
-### v2.0
+### 2.0
 
 - updated UI
 - added a nano-like text editor
 - probably final update as no other features are planned
 
-### v1.8
+### 1.8
 
 - nvs gets overwritten every time a firmware is being flashed. this was on 1.7 when i added functionality to name what firmware is inside ota_0 by writing it in nvs. it is also where the aliases are saved. fixed it by moving those to SD (firmware name and alias). because who would use this firmware flasher and file manager without an SD right? 
 
-### v1.7
+### 1.7
 
 - Public release
 - GitHub repository created
