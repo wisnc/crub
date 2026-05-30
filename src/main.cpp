@@ -1,3 +1,9 @@
+// Project: crub
+// Author: wisncn@aol.com
+// Repo: github.com/wisnc
+// Created: 2026-05-14
+
+
 #include <M5Cardputer.h>
 #include <SPI.h>
 #include <SD.h>

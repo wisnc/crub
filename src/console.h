@@ -1,3 +1,8 @@
+// Project: crub
+// Author: wisncn@aol.com
+// Repo: github.com/wisnc
+// Created: 2026-05-14
+
 #pragma once
 #include <M5Cardputer.h>
 #include <SD.h>

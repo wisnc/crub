@@ -1,3 +1,8 @@
+// Project: crub
+// Author: wisncn@aol.com
+// Repo: github.com/wisnc
+// Created: 2026-05-14
+
 #include "console.h"
 #include <string.h>
 
