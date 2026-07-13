@@ -7,6 +7,8 @@
 #include <M5Cardputer.h>
 #include <SD.h>
 
+#define CRUB_VERSION "2.6.7"
+
 #define C565(r,g,b) (((r>>3)<<11)|((g>>2)<<5)|(b>>3))
 
 static const uint16_t COL_BG     = 0x0000;

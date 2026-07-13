@@ -13,8 +13,6 @@ public:
     void run();
 
 private:
-    static const int MAX_LINES = 512;
-    static const int MAX_LINE_LEN = 128;
     static const int ED_ROWS = 15;
     static const int ED_COLS = 40;
     static const int LINENUM_W = 2;
@@ -24,14 +22,22 @@ private:
     static const int ED_Y = 0;
     static const int STATUS_Y = 125;
     static const int STATUS_H = 10;
+    static const int LINE_SLACK = 16;
 
-    char _buf[MAX_LINES][MAX_LINE_LEN + 1];
+    struct Line {
+        char* text;
+        int len;
+        int cap;
+    };
+
+    Line* _lines;
     int _lineCount;
+    int _lineCap;
 
     int _curRow, _curCol;
     int _scrollRow, _scrollCol;
 
-    char _clip[MAX_LINE_LEN + 1];
+    char* _clip;
     bool _hasClip;
 
     char _path[256];
@@ -41,6 +47,11 @@ private:
     bool _prompting;
     char _promptBuf[256];
     int _promptLen;
+
+    void freeAll();
+    bool growLineArray();
+    bool ensureLineCap(int idx, int needed);
+    bool newLineSlot(int idx, const char* text, int textLen);
 
     void draw();
     void drawText();
@@ -57,7 +68,6 @@ private:
     void pasteLine();
 
     void deleteLine(int idx);
-    void insertLineAt(int idx, const char* text);
 
     bool saveFile(const char* path);
 };

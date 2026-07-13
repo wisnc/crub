@@ -5,6 +5,58 @@
 
 #include "editor.h"
 #include <string.h>
+#include <stdlib.h>
+
+void Editor::freeAll() {
+    if (_lines) {
+        for (int i = 0; i < _lineCount; i++)
+            if (_lines[i].text) free(_lines[i].text);
+        free(_lines);
+        _lines = nullptr;
+    }
+    _lineCount = 0;
+    _lineCap = 0;
+}
+
+bool Editor::growLineArray() {
+    int newCap = _lineCap == 0 ? 64 : _lineCap * 2;
+    Line* n = (Line*)realloc(_lines, newCap * sizeof(Line));
+    if (!n) return false;
+    _lines = n;
+    _lineCap = newCap;
+    return true;
+}
+
+bool Editor::ensureLineCap(int idx, int needed) {
+    Line& l = _lines[idx];
+    if (l.cap >= needed + 1) return true;
+    int newCap = needed + 1 + LINE_SLACK;
+    char* n = (char*)realloc(l.text, newCap);
+    if (!n) return false;
+    l.text = n;
+    l.cap = newCap;
+    return true;
+}
+
+bool Editor::newLineSlot(int idx, const char* text, int textLen) {
+    if (_lineCount >= _lineCap && !growLineArray()) return false;
+    for (int i = _lineCount; i > idx; i--)
+        _lines[i] = _lines[i - 1];
+    int cap = textLen + 1 + LINE_SLACK;
+    char* buf = (char*)malloc(cap);
+    if (!buf) {
+        for (int i = idx; i < _lineCount; i++)
+            _lines[i] = _lines[i + 1];
+        return false;
+    }
+    memcpy(buf, text, textLen);
+    buf[textLen] = '\0';
+    _lines[idx].text = buf;
+    _lines[idx].len = textLen;
+    _lines[idx].cap = cap;
+    _lineCount++;
+    return true;
+}
 
 bool Editor::open(const char* path) {
     strncpy(_path, path, sizeof(_path) - 1);
@@ -14,29 +66,40 @@ bool Editor::open(const char* path) {
     _scrollRow = 0;
     _scrollCol = 0;
     _hasClip = false;
+    _clip = nullptr;
     _modified = false;
     _running = false;
     _prompting = false;
     _promptLen = 0;
+
+    _lines = nullptr;
     _lineCount = 0;
+    _lineCap = 0;
 
     File f = SD.open(path, FILE_READ);
     if (f && !f.isDirectory()) {
-        char line[MAX_LINE_LEN + 16];
-        while (f.available() && _lineCount < MAX_LINES) {
-            int len = f.readBytesUntil('\n', line, sizeof(line) - 1);
-            line[len] = '\0';
-            if (len > 0 && line[len - 1] == '\r') line[len - 1] = '\0';
-            strncpy(_buf[_lineCount], line, MAX_LINE_LEN);
-            _buf[_lineCount][MAX_LINE_LEN] = '\0';
-            _lineCount++;
+        String cur = "";
+        while (f.available()) {
+            char c = f.read();
+            if (c == '\n') {
+                int cl = cur.length();
+                if (cl > 0 && cur[cl - 1] == '\r') cur.remove(cl - 1);
+                newLineSlot(_lineCount, cur.c_str(), cur.length());
+                cur = "";
+            } else {
+                cur += c;
+            }
+        }
+        if (cur.length() > 0) {
+            int cl = cur.length();
+            if (cl > 0 && cur[cl - 1] == '\r') cur.remove(cl - 1);
+            newLineSlot(_lineCount, cur.c_str(), cur.length());
         }
         f.close();
     }
 
     if (_lineCount == 0) {
-        _buf[0][0] = '\0';
-        _lineCount = 1;
+        newLineSlot(0, "", 0);
     }
 
     return true;
@@ -149,7 +212,7 @@ void Editor::run() {
                         ensureVisible(); needDraw = true; break;
                     case '.':
                         _curRow = _lineCount - 1;
-                        _curCol = strlen(_buf[_curRow]);
+                        _curCol = _lines[_curRow].len;
                         ensureVisible(); needDraw = true; break;
                     case ',': moveCursor(-20, 0); needDraw = true; break;
                     case '/': moveCursor(20, 0);  needDraw = true; break;
@@ -178,6 +241,9 @@ void Editor::run() {
         if (needDraw) draw();
         delay(10);
     }
+
+    freeAll();
+    if (_clip) { free(_clip); _clip = nullptr; }
 }
 
 void Editor::draw() {
@@ -203,8 +269,8 @@ void Editor::drawText() {
         M5.Display.setCursor(ED_X, y);
         M5.Display.print(num);
 
-        const char* line = _buf[lineIdx];
-        int lineLen = strlen(line);
+        const char* line = _lines[lineIdx].text;
+        int lineLen = _lines[lineIdx].len;
 
         for (int col = 0; col < TEXT_COLS; col++) {
             int cx = TEXT_X + col * 6;
@@ -265,12 +331,13 @@ void Editor::drawStatus() {
 }
 
 void Editor::insertChar(char c) {
-    int len = strlen(_buf[_curRow]);
-    if (len >= MAX_LINE_LEN) return;
+    Line& l = _lines[_curRow];
+    if (!ensureLineCap(_curRow, l.len + 1)) return;
 
-    for (int i = len + 1; i > _curCol; i--)
-        _buf[_curRow][i] = _buf[_curRow][i - 1];
-    _buf[_curRow][_curCol] = c;
+    for (int i = l.len + 1; i > _curCol; i--)
+        l.text[i] = l.text[i - 1];
+    l.text[_curCol] = c;
+    l.len++;
     _curCol++;
     _modified = true;
     ensureVisible();
@@ -278,34 +345,35 @@ void Editor::insertChar(char c) {
 
 void Editor::deleteChar() {
     if (_curCol > 0) {
-        int len = strlen(_buf[_curRow]);
-        for (int i = _curCol - 1; i < len; i++)
-            _buf[_curRow][i] = _buf[_curRow][i + 1];
+        Line& l = _lines[_curRow];
+        for (int i = _curCol - 1; i < l.len; i++)
+            l.text[i] = l.text[i + 1];
+        l.len--;
         _curCol--;
         _modified = true;
         ensureVisible();
     } else if (_curRow > 0) {
-        int prevLen = strlen(_buf[_curRow - 1]);
-        int curLen = strlen(_buf[_curRow]);
-        if (prevLen + curLen <= MAX_LINE_LEN) {
-            strcat(_buf[_curRow - 1], _buf[_curRow]);
-            deleteLine(_curRow);
-            _curRow--;
-            _curCol = prevLen;
-            _modified = true;
-            ensureVisible();
-        }
+        Line& prev = _lines[_curRow - 1];
+        Line& cur = _lines[_curRow];
+        int prevLen = prev.len;
+        if (!ensureLineCap(_curRow - 1, prevLen + cur.len)) return;
+        memcpy(prev.text + prevLen, cur.text, cur.len + 1);
+        prev.len = prevLen + cur.len;
+        deleteLine(_curRow);
+        _curRow--;
+        _curCol = prevLen;
+        _modified = true;
+        ensureVisible();
     }
 }
 
 void Editor::newLine() {
-    if (_lineCount >= MAX_LINES) return;
-
-    char remainder[MAX_LINE_LEN + 1];
-    strcpy(remainder, &_buf[_curRow][_curCol]);
-    _buf[_curRow][_curCol] = '\0';
-
-    insertLineAt(_curRow + 1, remainder);
+    Line& l = _lines[_curRow];
+    int tailLen = l.len - _curCol;
+    if (!newLineSlot(_curRow + 1, l.text + _curCol, tailLen)) return;
+    Line& orig = _lines[_curRow];
+    orig.text[_curCol] = '\0';
+    orig.len = _curCol;
     _curRow++;
     _curCol = 0;
     _modified = true;
@@ -322,13 +390,13 @@ void Editor::moveCursor(int dr, int dc) {
     if (_curCol < 0) {
         if (_curRow > 0) {
             _curRow--;
-            _curCol = strlen(_buf[_curRow]);
+            _curCol = _lines[_curRow].len;
         } else {
             _curCol = 0;
         }
     }
 
-    int len = strlen(_buf[_curRow]);
+    int len = _lines[_curRow].len;
     if (_curCol > len) _curCol = len;
 
     ensureVisible();
@@ -343,8 +411,11 @@ void Editor::ensureVisible() {
 }
 
 void Editor::copyLine() {
-    strncpy(_clip, _buf[_curRow], MAX_LINE_LEN);
-    _clip[MAX_LINE_LEN] = '\0';
+    Line& l = _lines[_curRow];
+    char* n = (char*)realloc(_clip, l.len + 1);
+    if (!n) return;
+    _clip = n;
+    memcpy(_clip, l.text, l.len + 1);
     _hasClip = true;
 }
 
@@ -353,21 +424,22 @@ void Editor::cutLine() {
     if (_lineCount > 1) {
         deleteLine(_curRow);
         if (_curRow >= _lineCount) _curRow = _lineCount - 1;
-        int len = strlen(_buf[_curRow]);
+        int len = _lines[_curRow].len;
         if (_curCol > len) _curCol = len;
         _modified = true;
         ensureVisible();
     } else {
-        _buf[0][0] = '\0';
+        _lines[0].text[0] = '\0';
+        _lines[0].len = 0;
         _curCol = 0;
         _modified = true;
     }
 }
 
 void Editor::pasteLine() {
-    if (!_hasClip) return;
-    if (_lineCount >= MAX_LINES) return;
-    insertLineAt(_curRow + 1, _clip);
+    if (!_hasClip || !_clip) return;
+    int clen = strlen(_clip);
+    if (!newLineSlot(_curRow + 1, _clip, clen)) return;
     _curRow++;
     _curCol = 0;
     _modified = true;
@@ -376,29 +448,20 @@ void Editor::pasteLine() {
 
 void Editor::deleteLine(int idx) {
     if (idx < 0 || idx >= _lineCount) return;
+    if (_lines[idx].text) free(_lines[idx].text);
     for (int i = idx; i < _lineCount - 1; i++)
-        memcpy(_buf[i], _buf[i + 1], MAX_LINE_LEN + 1);
+        _lines[i] = _lines[i + 1];
     _lineCount--;
     if (_lineCount == 0) {
-        _buf[0][0] = '\0';
-        _lineCount = 1;
+        newLineSlot(0, "", 0);
     }
-}
-
-void Editor::insertLineAt(int idx, const char* text) {
-    if (_lineCount >= MAX_LINES) return;
-    for (int i = _lineCount; i > idx; i--)
-        memcpy(_buf[i], _buf[i - 1], MAX_LINE_LEN + 1);
-    strncpy(_buf[idx], text, MAX_LINE_LEN);
-    _buf[idx][MAX_LINE_LEN] = '\0';
-    _lineCount++;
 }
 
 bool Editor::saveFile(const char* path) {
     File f = SD.open(path, FILE_WRITE);
     if (!f) return false;
     for (int i = 0; i < _lineCount; i++) {
-        f.print(_buf[i]);
+        f.print(_lines[i].text);
         if (i < _lineCount - 1) f.print('\n');
     }
     f.close();
