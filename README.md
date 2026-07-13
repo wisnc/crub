@@ -148,6 +148,12 @@ display can also be controlled with `bright <0-255>`, Fn + _ and Fn + = for dimm
 
 ## Version History / Changelog
 
+### 2.6.7
+
+- editor overhaul
+- removed static hardcoded col and line limit
+- switched to dynamic allocation
+
 ### 2.6.6
 
 - added `bright <0-255>` command for display brightness control
