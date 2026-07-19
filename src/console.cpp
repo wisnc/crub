@@ -5,6 +5,90 @@
 
 #include "console.h"
 #include <string.h>
+#include <stdlib.h>
+#include <SD.h>
+
+uint16_t COL_BG     = 0x0000;
+uint16_t COL_ORANGE = C565(255, 140, 0);
+uint16_t COL_INFO   = C565(0, 200, 200);
+uint16_t COL_OK     = C565(0, 220, 80);
+uint16_t COL_RED    = C565(255, 50, 20);
+uint16_t COL_WARN   = C565(255, 220, 0);
+uint16_t COL_DIM    = C565(110, 110, 110);
+uint16_t COL_ECHO   = C565(70, 70, 70);
+uint16_t COL_BORDER = C565(200, 100, 0);
+uint16_t COL_GRID   = C565(30, 15, 0);
+
+struct ColorEntry { const char* name; uint16_t* ptr; uint16_t def; };
+static ColorEntry _colorTable[] = {
+    { "primary", &COL_ORANGE, C565(255, 140, 0) },
+    { "info",    &COL_INFO,   C565(0, 200, 200) },
+    { "ok",      &COL_OK,     C565(0, 220, 80) },
+    { "error",   &COL_RED,    C565(255, 50, 20) },
+    { "warn",    &COL_WARN,   C565(255, 220, 0) },
+    { "border",  &COL_BORDER, C565(200, 100, 0) },
+    { "bg",      &COL_BG,     0x0000 },
+};
+static const int _colorCount = sizeof(_colorTable) / sizeof(_colorTable[0]);
+
+bool setColorByName(const char* name, uint16_t value) {
+    for (int i = 0; i < _colorCount; i++) {
+        if (strcmp(_colorTable[i].name, name) == 0) {
+            *_colorTable[i].ptr = value;
+            return true;
+        }
+    }
+    return false;
+}
+
+uint16_t getColorByName(const char* name) {
+    for (int i = 0; i < _colorCount; i++)
+        if (strcmp(_colorTable[i].name, name) == 0)
+            return *_colorTable[i].ptr;
+    return 0;
+}
+
+void resetTheme() {
+    for (int i = 0; i < _colorCount; i++)
+        *_colorTable[i].ptr = _colorTable[i].def;
+}
+
+void loadTheme() {
+    File f = SD.open("/.crub_theme", FILE_READ);
+    if (!f) return;
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+        int sp = line.indexOf(' ');
+        if (sp < 0) continue;
+        String name = line.substring(0, sp);
+        String hex = line.substring(sp + 1);
+        name.trim(); hex.trim();
+        uint32_t rgb = strtoul(hex.c_str(), nullptr, 16);
+        uint8_t r = (rgb >> 16) & 0xFF;
+        uint8_t g = (rgb >> 8) & 0xFF;
+        uint8_t b = rgb & 0xFF;
+        setColorByName(name.c_str(), C565(r, g, b));
+    }
+    f.close();
+}
+
+void saveTheme() {
+    File f = SD.open("/.crub_theme", FILE_WRITE);
+    if (!f) return;
+    for (int i = 0; i < _colorCount; i++) {
+        uint16_t c = *_colorTable[i].ptr;
+        uint8_t r = ((c >> 11) & 0x1F) << 3;
+        uint8_t g = ((c >> 5) & 0x3F) << 2;
+        uint8_t b = (c & 0x1F) << 3;
+        char line[32];
+        snprintf(line, sizeof(line), "%s %02X%02X%02X", _colorTable[i].name, r, g, b);
+        f.println(line);
+    }
+    f.close();
+}
+
 
 void Console::init() {
     _histHead = 0;

@@ -16,6 +16,10 @@ public:
     void tabComplete(Console* con);
     void tabReset();
 
+    void historyPrev(Console* con);
+    void historyNext(Console* con);
+    void addHistory(const char* cmd);
+
 private:
     Console* _con;
     char _cwd[256];
@@ -53,6 +57,8 @@ private:
     void cmdUsbSd();
     void cmdBright(const char* args);
     void cmdSdInit();
+    void cmdColor(const char* args);
+    void cmdHistory();
 
     void cmdFlash(const char* args);
     void cmdLaunch(const char* args);
@@ -115,6 +121,11 @@ private:
     static const int MAX_TAB = 32;
     char _tabMatches[MAX_TAB][64];
     int _tabCount = 0;
+
+    static const int MAX_HIST = 32;
+    char _cmdHist[MAX_HIST][128];
+    int _histCount = 0;
+    int _histPos = -1;
     int _tabIdx = 0;
     bool _tabActive = false;
     int _tabPrefixEnd = 0;

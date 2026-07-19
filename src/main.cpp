@@ -157,6 +157,11 @@ void setup() {
     SPI.begin(40, 39, 14, 12);
     if (SD.begin(12, SPI, 25000000)) sdReady = true;
 
+    if (sdReady) {
+        loadTheme();
+        if (!SD.exists("/.crub_theme")) saveTheme();
+    }
+
     const esp_partition_t* otadata = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
     if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
@@ -225,6 +230,14 @@ void loop() {
     if (M5Cardputer.Keyboard.isChange() && M5Cardputer.Keyboard.isPressed()) {
         Keyboard_Class::KeysState keys = M5Cardputer.Keyboard.keysState();
 
+        if (keys.ctrl) {
+            for (auto c : keys.word) {
+                if (c == ';') { shell.historyPrev(&con); needRedraw = true; }
+                if (c == '.') { shell.historyNext(&con); needRedraw = true; }
+            }
+            if (needRedraw) goto done;
+        }
+
         if (keys.fn) {
             for (auto c : keys.word) {
                 if (c == ';') { con.scrollUp(); needRedraw = true; }
@@ -258,6 +271,7 @@ void loop() {
             char cmdBuf[128];
             if (con.inputEnter(cmdBuf, sizeof(cmdBuf))) {
                 con.resetScroll();
+                shell.addHistory(cmdBuf);
                 shell.process(cmdBuf);
             }
             shell.tabReset();

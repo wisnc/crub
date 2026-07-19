@@ -7,20 +7,26 @@
 #include <M5Cardputer.h>
 #include <SD.h>
 
-#define CRUB_VERSION "2.6.7"
+#define CRUB_VERSION "2.7.0"
 
 #define C565(r,g,b) (((r>>3)<<11)|((g>>2)<<5)|(b>>3))
 
-static const uint16_t COL_BG     = 0x0000;
-static const uint16_t COL_ORANGE = C565(255, 140, 0);
-static const uint16_t COL_INFO   = C565(0, 200, 200);
-static const uint16_t COL_OK     = C565(0, 220, 80);
-static const uint16_t COL_RED    = C565(255, 50, 20);
-static const uint16_t COL_WARN   = C565(255, 220, 0);
-static const uint16_t COL_DIM    = C565(110, 110, 110);
-static const uint16_t COL_ECHO   = C565(70, 70, 70);
-static const uint16_t COL_BORDER = C565(200, 100, 0);
-static const uint16_t COL_GRID   = C565(30, 15, 0);
+extern uint16_t COL_BG;
+extern uint16_t COL_ORANGE;
+extern uint16_t COL_INFO;
+extern uint16_t COL_OK;
+extern uint16_t COL_RED;
+extern uint16_t COL_WARN;
+extern uint16_t COL_DIM;
+extern uint16_t COL_ECHO;
+extern uint16_t COL_BORDER;
+extern uint16_t COL_GRID;
+
+void loadTheme();
+void saveTheme();
+void resetTheme();
+bool setColorByName(const char* name, uint16_t value);
+uint16_t getColorByName(const char* name);
 
 class Console {
 public:

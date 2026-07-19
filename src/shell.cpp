@@ -12,6 +12,7 @@
 #include "mbedtls/md5.h"
 #include "esp_flash.h"
 #include "USBMSC.h"
+#include <Preferences.h>
 
 static const char* subtypeName(uint8_t type, uint8_t subtype) {
     if (type == ESP_PARTITION_TYPE_APP) {
@@ -263,6 +264,8 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "usbsd") == 0)    cmdUsbSd();
     else if (strcmp(cmd, "bright") == 0)   cmdBright(args);
     else if (strcmp(cmd, "sd") == 0)       cmdSdInit();
+    else if (strcmp(cmd, "color") == 0)    cmdColor(args);
+    else if (strcmp(cmd, "history") == 0)  cmdHistory();
     else if (strcmp(cmd, "clear") == 0)    cmdClear();
     else if (strcmp(cmd, "flash") == 0)    cmdFlash(args);
     else if (strcmp(cmd, "launch") == 0)   cmdLaunch(args);
@@ -434,8 +437,7 @@ void Shell::cmdEdit(const char* args) {
     static Editor editor;
     if (editor.open(path)) {
         editor.run();
-        _con->init();
-        _con->print("editor closed", COL_DIM);
+        M5.Display.fillScreen(COL_BG);
         _con->redraw();
     } else {
         _con->print("cannot open file", COL_RED);
@@ -463,6 +465,8 @@ void Shell::cmdHelp() {
     _con->print(" fetch free uptime md5", COL_INFO);
     _con->print(" i2cscan beep usbsd =expr", COL_INFO);
     _con->print(" bright <0-255> sd", COL_INFO);
+    _con->print(" color <role> <hex>", COL_INFO);
+    _con->print(" history", COL_INFO);
     _con->print("chain: cmd1 && cmd2", COL_INFO);
     _con->print("alias [name] [\"cmd\"]", COL_INFO);
     _con->print("other: clear help", COL_INFO);
@@ -493,16 +497,14 @@ void Shell::cmdFetch() {
 
     snprintf(info[3], 24, "boot: crub " CRUB_VERSION);
 
-    File fwf = SD.open("/.crub_fw", FILE_READ);
-    if (fwf && fwf.size() > 0 && fwf.size() < 20) {
-        char fname[20] = {};
-        fwf.readBytes(fname, fwf.size());
-        fwf.close();
-        snprintf(info[4], 24, "fw: %s", fname);
-    } else {
-        if (fwf) fwf.close();
+    Preferences fwPrefs;
+    fwPrefs.begin("crubfw", true);
+    String fwName = fwPrefs.getString("name", "");
+    fwPrefs.end();
+    if (fwName.length() > 0)
+        snprintf(info[4], 24, "fw: %s", fwName.c_str());
+    else
         snprintf(info[4], 24, "fw: none");
-    }
 
     sdcard_type_t ctype = SD.cardType();
     if (ctype != CARD_NONE) {
@@ -799,7 +801,7 @@ void Shell::cmdUsbSd() {
     msc.mediaPresent(false);
     usbSdActive = false;
 
-    _con->init();
+    M5.Display.fillScreen(COL_BG);
     _con->print("USB SD mode exited", COL_OK);
     _con->redraw();
 }
@@ -832,12 +834,80 @@ void Shell::cmdSdInit() {
         snprintf(msg, sizeof(msg), "SD: ok (%.1fG %s)", sizeG, ctn);
         _con->print(msg, COL_OK);
         loadAliases();
+        loadTheme();
         char amsg[24];
         snprintf(amsg, sizeof(amsg), "aliases: %d loaded", _aliasCount);
         _con->print(amsg, COL_DIM);
     } else {
         _con->print("SD: not found", COL_RED);
     }
+}
+
+void Shell::cmdColor(const char* args) {
+    char sub[16];
+    const char* rest = parseArg(args, sub, sizeof(sub));
+
+    if (sub[0] == '\0' || strcmp(sub, "list") == 0) {
+        const char* roles[] = { "primary", "info", "ok", "error", "warn", "border", "bg" };
+        for (int i = 0; i < 7; i++) {
+            uint16_t c = getColorByName(roles[i]);
+            uint8_t r = ((c >> 11) & 0x1F) << 3;
+            uint8_t g = ((c >> 5) & 0x3F) << 2;
+            uint8_t b = (c & 0x1F) << 3;
+            char msg[32];
+            snprintf(msg, sizeof(msg), " %-8s %02X%02X%02X", roles[i], r, g, b);
+            _con->print(msg, getColorByName(roles[i]));
+        }
+        return;
+    }
+
+    if (strcmp(sub, "reset") == 0) {
+        resetTheme();
+        saveTheme();
+        M5.Display.fillScreen(COL_BG);
+        _con->print("theme reset", COL_OK);
+        _con->redraw();
+        return;
+    }
+
+    char v1[16], v2[16], v3[16];
+    const char* r2 = parseArg(rest, v1, sizeof(v1));
+    const char* r3 = parseArg(r2, v2, sizeof(v2));
+    parseArg(r3, v3, sizeof(v3));
+
+    if (!v1[0]) {
+        _con->print("usage: color <role> <hex>", COL_RED);
+        _con->print("roles: primary info ok", COL_DIM);
+        _con->print(" error warn border bg", COL_DIM);
+        return;
+    }
+
+    uint16_t value;
+    if (v2[0] && v3[0]) {
+        int r = atoi(v1), g = atoi(v2), b = atoi(v3);
+        if (r < 0) r = 0; if (r > 255) r = 255;
+        if (g < 0) g = 0; if (g > 255) g = 255;
+        if (b < 0) b = 0; if (b > 255) b = 255;
+        value = C565(r, g, b);
+    } else {
+        uint32_t rgb = strtoul(v1, nullptr, 16);
+        uint8_t r = (rgb >> 16) & 0xFF;
+        uint8_t g = (rgb >> 8) & 0xFF;
+        uint8_t b = rgb & 0xFF;
+        value = C565(r, g, b);
+    }
+
+    if (!setColorByName(sub, value)) {
+        _con->print("unknown role", COL_RED);
+        return;
+    }
+
+    saveTheme();
+    M5.Display.fillScreen(COL_BG);
+    char msg[24];
+    snprintf(msg, sizeof(msg), "%s updated", sub);
+    _con->print(msg, COL_OK);
+    _con->redraw();
 }
 
 int Shell::collectPartitions(FlashPart* out, int max) {
@@ -1555,8 +1625,11 @@ void Shell::cmdFlash(const char* args) {
 
     const char* fname = strrchr(path, '/');
     fname = fname ? fname + 1 : path;
-    File fwf = SD.open("/.crub_fw", FILE_WRITE);
-    if (fwf) { fwf.print(fname); fwf.close(); }
+    delay(100);
+    Preferences fwPrefs;
+    fwPrefs.begin("crubfw", false);
+    fwPrefs.putString("name", fname);
+    fwPrefs.end();
 
     _con->print("flash complete", COL_OK);
     _con->print("type 'launch' to boot", COL_OK);
@@ -1749,6 +1822,53 @@ void Shell::tabReset() {
     _tabActive = false;
     _tabCount = 0;
     _tabIdx = 0;
+}
+
+void Shell::addHistory(const char* cmd) {
+    _histPos = -1;
+    if (cmd[0] == '\0') return;
+    if (_histCount > 0 && strcmp(_cmdHist[_histCount - 1], cmd) == 0) return;
+
+    if (_histCount < MAX_HIST) {
+        strncpy(_cmdHist[_histCount], cmd, 127);
+        _cmdHist[_histCount][127] = '\0';
+        _histCount++;
+    } else {
+        for (int i = 0; i < MAX_HIST - 1; i++)
+            strcpy(_cmdHist[i], _cmdHist[i + 1]);
+        strncpy(_cmdHist[MAX_HIST - 1], cmd, 127);
+        _cmdHist[MAX_HIST - 1][127] = '\0';
+    }
+}
+
+void Shell::historyPrev(Console* con) {
+    if (_histCount == 0) return;
+    if (_histPos == -1) _histPos = _histCount - 1;
+    else if (_histPos > 0) _histPos--;
+    con->setInput(_cmdHist[_histPos]);
+}
+
+void Shell::historyNext(Console* con) {
+    if (_histCount == 0 || _histPos == -1) return;
+    if (_histPos < _histCount - 1) {
+        _histPos++;
+        con->setInput(_cmdHist[_histPos]);
+    } else {
+        _histPos = -1;
+        con->setInput("");
+    }
+}
+
+void Shell::cmdHistory() {
+    if (_histCount == 0) {
+        _con->print("no history", COL_DIM);
+        return;
+    }
+    for (int i = 0; i < _histCount; i++) {
+        char msg[136];
+        snprintf(msg, sizeof(msg), "%2d %s", i + 1, _cmdHist[i]);
+        _con->print(msg, COL_INFO);
+    }
 }
 
 void Shell::tabComplete(Console* con) {
