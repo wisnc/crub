@@ -99,6 +99,21 @@ ls /binaries > /logs/filelist.txt
 
 boot scripts run automatically if `/.crub_boot` exists on the SD card
 
+### Themes!
+
+on boot, a `/.crub_theme` is created which contains the default theme of crub, edit it with the editor
+
+```
+color primary 00D0FF
+color border 0080FF
+color info FFFFFF
+color ok 00FF88
+color warn FFD000
+color error FF4040
+```
+
+these are the default values for the theme and can be found on the `.crub_theme` file.
+
 ### fast firmware boot
 
 write `launch -f` to `/.crub_boot` and crub will skip the boot screen and launch installed firmware instantly on power on. remove the SD card to enter crub normally
@@ -147,6 +162,12 @@ display can also be controlled with `bright <0-255>`, Fn + _ and Fn + = for dimm
 ---
 
 ## Version History / Changelog
+
+### 2.7.0
+- THEME UPDATE
+- added color command to change crub colors
+- .crub_fw has been moved to NVS and can now be deleted.
+- .crub_theme has been added to run color command on each line
 
 ### 2.6.7
 
