@@ -71,7 +71,7 @@ static const uint8_t LOGO_B[] = {
 static const int LOGO_CRU_H = 7;
 static const int LOGO_B_H = 9;
 
-static void showBootScreen() {
+void drawBootScreen(int holdMs) {
     M5.Display.fillScreen(COL_BG);
 
     for (int y = 0; y < 135; y += 8)
@@ -127,7 +127,7 @@ static void showBootScreen() {
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
     M5.Display.print(ver);
 
-    delay(400);
+    if (holdMs > 0) delay(holdMs);
 }
 
 static int32_t scrollReadInc() {
@@ -160,6 +160,10 @@ void setup() {
     if (sdReady) {
         loadTheme();
         if (!SD.exists("/.crub_theme")) saveTheme();
+        if (!SD.exists("/.crub_boot")) {
+            File bf = SD.open("/.crub_boot", FILE_WRITE);
+            if (bf) { bf.println("boots 1500"); bf.println("fetch"); bf.close(); }
+        }
     }
 
     const esp_partition_t* otadata = esp_partition_find_first(
@@ -167,11 +171,23 @@ void setup() {
     if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
 
     if (sdReady && SD.exists("/.crub_boot")) {
-        shell.init(&con);
-        shell.process("run /.crub_boot");
+        File bf = SD.open("/.crub_boot", FILE_READ);
+        if (bf) {
+            bool fastLaunch = false;
+            while (bf.available()) {
+                String line = bf.readStringUntil('\n');
+                line.trim();
+                if (line.length() == 0 || line[0] == '#') continue;
+                if (line == "launch -f" || line == "launch -f ") fastLaunch = true;
+                break;
+            }
+            bf.close();
+            if (fastLaunch) {
+                shell.init(&con);
+                shell.process("launch -f");
+            }
+        }
     }
-
-    showBootScreen();
 
     con.init();
 
@@ -195,17 +211,22 @@ void setup() {
     scrollReady = (Wire.endTransmission() == 0);
     if (scrollReady) scrollReadInc();
 
-    con.print("crub " CRUB_VERSION, COL_ORANGE);
-
-    const esp_partition_t* running = esp_ota_get_running_partition();
-    if (running) {
-        char msg[48];
-        snprintf(msg, sizeof(msg), "running: %s @0x%lX",
-                 running->label, (unsigned long)running->address);
-        con.print(msg, COL_DIM);
+    if (sdReady && SD.exists("/.crub_boot")) {
+        shell.process("run /.crub_boot");
+    } else {
+        drawBootScreen(0);
+        delay(1500);
+        con.init();
+        con.print("crub " CRUB_VERSION, COL_ORANGE);
+        const esp_partition_t* running = esp_ota_get_running_partition();
+        if (running) {
+            char msg[48];
+            snprintf(msg, sizeof(msg), "running: %s @0x%lX",
+                     running->label, (unsigned long)running->address);
+            con.print(msg, COL_DIM);
+        }
     }
 
-    shell.process("fetch");
     con.redraw();
 }
 

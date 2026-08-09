@@ -397,7 +397,16 @@ void Editor::moveCursor(int dr, int dc) {
     }
 
     int len = _lines[_curRow].len;
-    if (_curCol > len) _curCol = len;
+    if (dc > 0 && dr == 0 && _curCol > len) {
+        if (_curRow < _lineCount - 1) {
+            _curRow++;
+            _curCol = 0;
+        } else {
+            _curCol = len;
+        }
+    } else if (_curCol > len) {
+        _curCol = len;
+    }
 
     ensureVisible();
 }

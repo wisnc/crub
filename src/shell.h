@@ -59,6 +59,17 @@ private:
     void cmdSdInit();
     void cmdColor(const char* args);
     void cmdHistory();
+    void cmdFetch(const char* args);
+    void cmdWaits(const char* args);
+    void cmdWaitms(const char* args);
+    void cmdBoots(const char* args);
+    void fetchRender();
+    void fetchField(const char* field, char* out, int outSize);
+    void fetchFields(const char* args);
+    void fetchLogo(const char* args);
+    void fetchEdit();
+    int fetchGetLogo(char lines[][16], int maxLines);
+    void fetchGetFields(char* out, int outSize);
 
     void cmdFlash(const char* args);
     void cmdLaunch(const char* args);

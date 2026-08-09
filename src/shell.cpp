@@ -13,6 +13,7 @@
 #include "esp_flash.h"
 #include "USBMSC.h"
 #include <Preferences.h>
+#include <esp_mac.h>
 
 static const char* subtypeName(uint8_t type, uint8_t subtype) {
     if (type == ESP_PARTITION_TYPE_APP) {
@@ -256,6 +257,9 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "echo") == 0)     cmdEcho(args);
     else if (strcmp(cmd, "run") == 0)      cmdRun(args);
     else if (strcmp(cmd, "sleep") == 0)    cmdSleep(args);
+    else if (strcmp(cmd, "waits") == 0)    cmdWaits(args);
+    else if (strcmp(cmd, "waitms") == 0)   cmdWaitms(args);
+    else if (strcmp(cmd, "boots") == 0)    cmdBoots(args);
     else if (strcmp(cmd, "md5") == 0)      cmdMd5(args);
     else if (strcmp(cmd, "beep") == 0)     cmdBeep(args);
     else if (strcmp(cmd, "uptime") == 0)   cmdUptime();
@@ -274,7 +278,7 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "erase") == 0)    cmdErase(args);
     else if (strcmp(cmd, "alias") == 0)    cmdAlias(args);
     else if (strcmp(cmd, "unalias") == 0)  cmdUnalias(args);
-    else if (strcmp(cmd, "fetch") == 0)    cmdFetch();
+    else if (strcmp(cmd, "fetch") == 0)    cmdFetch(args);
     else if (strcmp(cmd, "help") == 0)     cmdHelp();
     else {
         char msg[48];
@@ -460,78 +464,269 @@ void Shell::cmdHelp() {
     _con->print(" pt delete/resize <label>", COL_INFO);
     _con->print(" pt write yes / pt reset", COL_INFO);
     _con->print("script:", COL_INFO);
-    _con->print(" run echo sleep # comment", COL_INFO);
+    _con->print(" run echo # comment", COL_INFO);
+    _con->print(" sleep waits waitms", COL_INFO);
+    _con->print(" boots <ms>", COL_INFO);
     _con->print("system:", COL_INFO);
     _con->print(" fetch free uptime md5", COL_INFO);
     _con->print(" i2cscan beep usbsd =expr", COL_INFO);
     _con->print(" bright <0-255> sd", COL_INFO);
     _con->print(" color <role> <hex>", COL_INFO);
     _con->print(" history", COL_INFO);
+    _con->print("fetch cfg:", COL_INFO);
+    _con->print(" fetch fields <list>", COL_INFO);
+    _con->print(" fetch logo <file>", COL_INFO);
+    _con->print(" fetch edit", COL_INFO);
     _con->print("chain: cmd1 && cmd2", COL_INFO);
     _con->print("alias [name] [\"cmd\"]", COL_INFO);
     _con->print("other: clear help", COL_INFO);
 }
 
-void Shell::cmdFetch() {
-    static const char* logo[] = {
-		"::::::::::::",
-        "::::#:::::::",
-        ":::##:::#:::",
-        "::##::::##::",
-        ":###:::####:",
-        ":####:#####:",
-        "::####:####:",
-        ":::####:##::",
-    };
+static const char* DEFAULT_LOGO[] = {
+    "::::::::::::",
+    "::::#:::::::",
+    ":::##:::#:::",
+    "::##::::##::",
+    ":###:::####:",
+    ":####:#####:",
+    "::####:####:",
+    ":::####:##::",
+};
+static const int DEFAULT_LOGO_ROWS = 8;
+static const char* DEFAULT_FIELDS = "cpu ram flash boot fw sd lcd bat";
 
-
-    char info[8][24];
-
-    snprintf(info[0], 24, "cpu: LX7 dual @240MHz");
-
-    uint32_t freeK = ESP.getFreeHeap() / 1024;
-    snprintf(info[1], 24, "ram: %luK free", freeK);
-
-    uint32_t flashMB = ESP.getFlashChipSize() / (1024 * 1024);
-    snprintf(info[2], 24, "flash: %luMB NOR", flashMB);
-
-    snprintf(info[3], 24, "boot: crub " CRUB_VERSION);
-
-    Preferences fwPrefs;
-    fwPrefs.begin("crubfw", true);
-    String fwName = fwPrefs.getString("name", "");
-    fwPrefs.end();
-    if (fwName.length() > 0)
-        snprintf(info[4], 24, "fw: %s", fwName.c_str());
-    else
-        snprintf(info[4], 24, "fw: none");
-
-    sdcard_type_t ctype = SD.cardType();
-    if (ctype != CARD_NONE) {
-        float sizeG = SD.cardSize() / (1024.0f * 1024.0f * 1024.0f);
-        const char* ct = (ctype == CARD_SDHC) ? "SDHC" :
-                         (ctype == CARD_SD)   ? "SD" :
-                         (ctype == CARD_MMC)  ? "MMC" : "?";
-        snprintf(info[5], 24, "sd: %.1fG %s", sizeG, ct);
+void Shell::fetchField(const char* field, char* out, int outSize) {
+    if (strcmp(field, "cpu") == 0) {
+        snprintf(out, outSize, "cpu: LX7 dual @240MHz");
+    } else if (strcmp(field, "ram") == 0) {
+        snprintf(out, outSize, "ram: %luK free", ESP.getFreeHeap() / 1024);
+    } else if (strcmp(field, "flash") == 0) {
+        snprintf(out, outSize, "flash: %luMB NOR", ESP.getFlashChipSize() / (1024 * 1024));
+    } else if (strcmp(field, "boot") == 0) {
+        snprintf(out, outSize, "boot: crub " CRUB_VERSION);
+    } else if (strcmp(field, "fw") == 0) {
+        Preferences fwPrefs;
+        fwPrefs.begin("crubfw", true);
+        String fwName = fwPrefs.getString("name", "");
+        fwPrefs.end();
+        if (fwName.length() > 0) snprintf(out, outSize, "fw: %s", fwName.c_str());
+        else snprintf(out, outSize, "fw: none");
+    } else if (strcmp(field, "sd") == 0) {
+        sdcard_type_t ct = SD.cardType();
+        if (ct != CARD_NONE) {
+            float g = SD.cardSize() / (1024.0f * 1024.0f * 1024.0f);
+            const char* n = (ct == CARD_SDHC) ? "SDHC" : (ct == CARD_SD) ? "SD" :
+                            (ct == CARD_MMC) ? "MMC" : "?";
+            snprintf(out, outSize, "sd: %.1fG %s", g, n);
+        } else snprintf(out, outSize, "sd: not found");
+    } else if (strcmp(field, "lcd") == 0) {
+        extern uint8_t brightness;
+        snprintf(out, outSize, "lcd: 240x135 b:%d", brightness);
+    } else if (strcmp(field, "bat") == 0) {
+        int v = M5.Power.getBatteryVoltage();
+        int l = M5.Power.getBatteryLevel();
+        if (v > 0) snprintf(out, outSize, "bat: %.1fV %d%%", v / 1000.0f, l);
+        else snprintf(out, outSize, "bat: n/a");
+    } else if (strcmp(field, "uptime") == 0) {
+        unsigned long s = millis() / 1000;
+        snprintf(out, outSize, "up: %luh %lum %lus", s / 3600, (s % 3600) / 60, s % 60);
+    } else if (strcmp(field, "mac") == 0) {
+        uint8_t m[6];
+        esp_read_mac(m, ESP_MAC_WIFI_STA);
+        snprintf(out, outSize, "mac: %02X%02X%02X%02X%02X%02X",
+                 m[0], m[1], m[2], m[3], m[4], m[5]);
+    } else if (strcmp(field, "temp") == 0) {
+        snprintf(out, outSize, "temp: %.0fC", temperatureRead());
     } else {
-        snprintf(info[5], 24, "sd: not found");
+        out[0] = '\0';
+    }
+}
+
+int Shell::fetchGetLogo(char lines[][16], int maxLines) {
+    Preferences p;
+    p.begin("crubfetch", true);
+    String blob = p.getString("logo", "");
+    p.end();
+
+    if (blob.length() == 0) {
+        int n = (DEFAULT_LOGO_ROWS < maxLines) ? DEFAULT_LOGO_ROWS : maxLines;
+        for (int i = 0; i < n; i++) {
+            strncpy(lines[i], DEFAULT_LOGO[i], 15);
+            lines[i][15] = '\0';
+        }
+        return n;
     }
 
-    extern uint8_t brightness;
-    snprintf(info[6], 24, "lcd: 240x135 b:%d", brightness);
+    int count = 0;
+    int start = 0;
+    while (count < maxLines && start < (int)blob.length()) {
+        int nl = blob.indexOf('\n', start);
+        if (nl < 0) nl = blob.length();
+        String row = blob.substring(start, nl);
+        strncpy(lines[count], row.c_str(), 15);
+        lines[count][15] = '\0';
+        count++;
+        start = nl + 1;
+    }
+    return count;
+}
 
-    int batV = M5.Power.getBatteryVoltage();
-    int batLvl = M5.Power.getBatteryLevel();
-    if (batV > 0)
-        snprintf(info[7], 24, "bat: %.1fV %d%%",
-                 batV / 1000.0f, batLvl);
-    else
-        snprintf(info[7], 24, "bat: n/a");
+void Shell::fetchGetFields(char* out, int outSize) {
+    Preferences p;
+    p.begin("crubfetch", true);
+    String f = p.getString("fields", "");
+    p.end();
+    if (f.length() == 0) strncpy(out, DEFAULT_FIELDS, outSize - 1);
+    else strncpy(out, f.c_str(), outSize - 1);
+    out[outSize - 1] = '\0';
+}
 
-    char line[38];
-    for (int i = 0; i < 8; i++) {
-        snprintf(line, sizeof(line), "%s %s", logo[i], info[i]);
+void Shell::fetchRender() {
+    char logo[16][16];
+    int logoRows = fetchGetLogo(logo, 16);
+
+    char fieldStr[128];
+    fetchGetFields(fieldStr, sizeof(fieldStr));
+
+    char fieldNames[16][12];
+    int fieldCount = 0;
+    char* tok = strtok(fieldStr, " ");
+    while (tok && fieldCount < 16) {
+        strncpy(fieldNames[fieldCount], tok, 11);
+        fieldNames[fieldCount][11] = '\0';
+        fieldCount++;
+        tok = strtok(nullptr, " ");
+    }
+
+    int rows = (logoRows > fieldCount) ? logoRows : fieldCount;
+    for (int i = 0; i < rows; i++) {
+        char line[48];
+        char info[28] = "";
+        if (i < fieldCount) fetchField(fieldNames[i], info, sizeof(info));
+        const char* art = (i < logoRows) ? logo[i] : "";
+        if (info[0])
+            snprintf(line, sizeof(line), "%-12s %s", art, info);
+        else
+            snprintf(line, sizeof(line), "%s", art);
         _con->print(line, COL_ORANGE);
+    }
+}
+
+void Shell::fetchFields(const char* args) {
+    if (*args == '\0') {
+        _con->print("available:", COL_INFO);
+        _con->print(" cpu ram flash boot fw", COL_INFO);
+        _con->print(" sd lcd bat uptime mac", COL_INFO);
+        _con->print(" temp", COL_INFO);
+        char cur[128];
+        fetchGetFields(cur, sizeof(cur));
+        _con->print("current:", COL_DIM);
+        _con->print(cur, COL_ORANGE);
+        return;
+    }
+    if (strcmp(args, "reset") == 0) {
+        Preferences p;
+        p.begin("crubfetch", false);
+        p.remove("fields");
+        p.end();
+        _con->print("fields reset", COL_OK);
+        return;
+    }
+    Preferences p;
+    p.begin("crubfetch", false);
+    p.putString("fields", args);
+    p.end();
+    _con->print("fields updated", COL_OK);
+}
+
+void Shell::fetchLogo(const char* args) {
+    if (*args == '\0') {
+        _con->print("usage: fetch logo <file>", COL_RED);
+        return;
+    }
+    if (strcmp(args, "reset") == 0) {
+        Preferences p;
+        p.begin("crubfetch", false);
+        p.remove("logo");
+        p.end();
+        _con->print("logo reset", COL_OK);
+        return;
+    }
+    char path[256];
+    resolvePath(args, path, sizeof(path));
+    File f = SD.open(path, FILE_READ);
+    if (!f) { _con->print("cannot open file", COL_RED); return; }
+    String blob = "";
+    int rows = 0;
+    while (f.available() && rows < 16) {
+        String line = f.readStringUntil('\n');
+        if (line.endsWith("\r")) line.remove(line.length() - 1);
+        if (blob.length() > 0) blob += "\n";
+        blob += line;
+        rows++;
+    }
+    f.close();
+    Preferences p;
+    p.begin("crubfetch", false);
+    p.putString("logo", blob);
+    p.end();
+    _con->print("logo updated", COL_OK);
+}
+
+void Shell::fetchEdit() {
+    char logo[16][16];
+    int rows = fetchGetLogo(logo, 16);
+
+    File f = SD.open("/.crub_tmp", FILE_WRITE);
+    if (!f) { _con->print("cannot create temp", COL_RED); return; }
+    for (int i = 0; i < rows; i++) {
+        f.print(logo[i]);
+        if (i < rows - 1) f.print('\n');
+    }
+    f.close();
+
+    static Editor editor;
+    if (editor.open("/.crub_tmp")) {
+        editor.run();
+        M5.Display.fillScreen(COL_BG);
+        _con->redraw();
+
+        File rf = SD.open("/.crub_tmp", FILE_READ);
+        if (rf) {
+            String blob = "";
+            int r = 0;
+            while (rf.available() && r < 16) {
+                String line = rf.readStringUntil('\n');
+                if (line.endsWith("\r")) line.remove(line.length() - 1);
+                if (blob.length() > 0) blob += "\n";
+                blob += line;
+                r++;
+            }
+            rf.close();
+            Preferences p;
+            p.begin("crubfetch", false);
+            p.putString("logo", blob);
+            p.end();
+        }
+        SD.remove("/.crub_tmp");
+        _con->print("logo saved", COL_OK);
+    }
+}
+
+void Shell::cmdFetch(const char* args) {
+    char sub[16];
+    const char* rest = parseArg(args, sub, sizeof(sub));
+
+    if (sub[0] == '\0') {
+        fetchRender();
+    } else if (strcmp(sub, "fields") == 0) {
+        fetchFields(rest);
+    } else if (strcmp(sub, "logo") == 0) {
+        fetchLogo(rest);
+    } else if (strcmp(sub, "edit") == 0) {
+        fetchEdit();
+    } else {
+        _con->print("fetch [fields|logo|edit]", COL_INFO);
     }
 }
 
@@ -681,6 +876,25 @@ void Shell::cmdEcho(const char* args) {
 void Shell::cmdSleep(const char* args) {
     int ms = atoi(args);
     if (ms > 0 && ms <= 30000) delay(ms);
+}
+
+void Shell::cmdWaits(const char* args) {
+    int s = atoi(args);
+    if (s > 0 && s <= 600) delay(s * 1000);
+}
+
+void Shell::cmdWaitms(const char* args) {
+    int ms = atoi(args);
+    if (ms > 0 && ms <= 10000) delay(ms);
+}
+
+void Shell::cmdBoots(const char* args) {
+    extern void drawBootScreen(int holdMs);
+    int ms = atoi(args);
+    if (ms < 0) ms = 0;
+    if (ms > 10000) ms = 10000;
+    drawBootScreen(ms);
+    M5.Display.fillScreen(COL_BG);
 }
 
 void Shell::cmdRun(const char* args) {
