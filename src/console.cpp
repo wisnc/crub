@@ -54,7 +54,7 @@ void resetTheme() {
 }
 
 void loadTheme() {
-    File f = SD.open("/.crub_theme", FILE_READ);
+    File f = SD.open("/.crub/theme", FILE_READ);
     if (!f) return;
     while (f.available()) {
         String line = f.readStringUntil('\n');
@@ -75,7 +75,7 @@ void loadTheme() {
 }
 
 void saveTheme() {
-    File f = SD.open("/.crub_theme", FILE_WRITE);
+    File f = SD.open("/.crub/theme", FILE_WRITE);
     if (!f) return;
     for (int i = 0; i < _colorCount; i++) {
         uint16_t c = *_colorTable[i].ptr;

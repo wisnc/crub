@@ -260,6 +260,7 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "waits") == 0)    cmdWaits(args);
     else if (strcmp(cmd, "waitms") == 0)   cmdWaitms(args);
     else if (strcmp(cmd, "boots") == 0)    cmdBoots(args);
+    else if (strcmp(cmd, "crub") == 0)     cmdCrub(args);
     else if (strcmp(cmd, "md5") == 0)      cmdMd5(args);
     else if (strcmp(cmd, "beep") == 0)     cmdBeep(args);
     else if (strcmp(cmd, "uptime") == 0)   cmdUptime();
@@ -480,6 +481,7 @@ void Shell::cmdHelp() {
     _con->print("chain: cmd1 && cmd2", COL_INFO);
     _con->print("alias [name] [\"cmd\"]", COL_INFO);
     _con->print("other: clear help", COL_INFO);
+    _con->print(" crub fix / crub version", COL_INFO);
 }
 
 static const char* DEFAULT_LOGO[] = {
@@ -505,12 +507,17 @@ void Shell::fetchField(const char* field, char* out, int outSize) {
     } else if (strcmp(field, "boot") == 0) {
         snprintf(out, outSize, "boot: crub " CRUB_VERSION);
     } else if (strcmp(field, "fw") == 0) {
-        Preferences fwPrefs;
-        fwPrefs.begin("crubfw", true);
-        String fwName = fwPrefs.getString("name", "");
-        fwPrefs.end();
-        if (fwName.length() > 0) snprintf(out, outSize, "fw: %s", fwName.c_str());
-        else snprintf(out, outSize, "fw: none");
+        File ff = SD.open("/.crub/fw", FILE_READ);
+        if (ff && ff.size() > 0 && ff.size() < 40) {
+            String fwName = ff.readStringUntil('\n');
+            ff.close();
+            fwName.trim();
+            if (fwName.length() > 0) snprintf(out, outSize, "fw: %s", fwName.c_str());
+            else snprintf(out, outSize, "fw: none");
+        } else {
+            if (ff) ff.close();
+            snprintf(out, outSize, "fw: none");
+        }
     } else if (strcmp(field, "sd") == 0) {
         sdcard_type_t ct = SD.cardType();
         if (ct != CARD_NONE) {
@@ -543,12 +550,8 @@ void Shell::fetchField(const char* field, char* out, int outSize) {
 }
 
 int Shell::fetchGetLogo(char lines[][16], int maxLines) {
-    Preferences p;
-    p.begin("crubfetch", true);
-    String blob = p.getString("logo", "");
-    p.end();
-
-    if (blob.length() == 0) {
+    File f = SD.open("/.crub/logo", FILE_READ);
+    if (!f) {
         int n = (DEFAULT_LOGO_ROWS < maxLines) ? DEFAULT_LOGO_ROWS : maxLines;
         for (int i = 0; i < n; i++) {
             strncpy(lines[i], DEFAULT_LOGO[i], 15);
@@ -558,26 +561,37 @@ int Shell::fetchGetLogo(char lines[][16], int maxLines) {
     }
 
     int count = 0;
-    int start = 0;
-    while (count < maxLines && start < (int)blob.length()) {
-        int nl = blob.indexOf('\n', start);
-        if (nl < 0) nl = blob.length();
-        String row = blob.substring(start, nl);
+    while (count < maxLines && f.available()) {
+        String row = f.readStringUntil('\n');
+        if (row.endsWith("\r")) row.remove(row.length() - 1);
         strncpy(lines[count], row.c_str(), 15);
         lines[count][15] = '\0';
         count++;
-        start = nl + 1;
+    }
+    f.close();
+    if (count == 0) {
+        int n = (DEFAULT_LOGO_ROWS < maxLines) ? DEFAULT_LOGO_ROWS : maxLines;
+        for (int i = 0; i < n; i++) {
+            strncpy(lines[i], DEFAULT_LOGO[i], 15);
+            lines[i][15] = '\0';
+        }
+        return n;
     }
     return count;
 }
 
 void Shell::fetchGetFields(char* out, int outSize) {
-    Preferences p;
-    p.begin("crubfetch", true);
-    String f = p.getString("fields", "");
-    p.end();
-    if (f.length() == 0) strncpy(out, DEFAULT_FIELDS, outSize - 1);
-    else strncpy(out, f.c_str(), outSize - 1);
+    File f = SD.open("/.crub/fields", FILE_READ);
+    if (!f) {
+        strncpy(out, DEFAULT_FIELDS, outSize - 1);
+        out[outSize - 1] = '\0';
+        return;
+    }
+    String s = f.readStringUntil('\n');
+    f.close();
+    s.trim();
+    if (s.length() == 0) strncpy(out, DEFAULT_FIELDS, outSize - 1);
+    else strncpy(out, s.c_str(), outSize - 1);
     out[outSize - 1] = '\0';
 }
 
@@ -625,17 +639,12 @@ void Shell::fetchFields(const char* args) {
         return;
     }
     if (strcmp(args, "reset") == 0) {
-        Preferences p;
-        p.begin("crubfetch", false);
-        p.remove("fields");
-        p.end();
+        SD.remove("/.crub/fields");
         _con->print("fields reset", COL_OK);
         return;
     }
-    Preferences p;
-    p.begin("crubfetch", false);
-    p.putString("fields", args);
-    p.end();
+    File f = SD.open("/.crub/fields", FILE_WRITE);
+    if (f) { f.println(args); f.close(); }
     _con->print("fields updated", COL_OK);
 }
 
@@ -645,10 +654,7 @@ void Shell::fetchLogo(const char* args) {
         return;
     }
     if (strcmp(args, "reset") == 0) {
-        Preferences p;
-        p.begin("crubfetch", false);
-        p.remove("logo");
-        p.end();
+        SD.remove("/.crub/logo");
         _con->print("logo reset", COL_OK);
         return;
     }
@@ -656,20 +662,17 @@ void Shell::fetchLogo(const char* args) {
     resolvePath(args, path, sizeof(path));
     File f = SD.open(path, FILE_READ);
     if (!f) { _con->print("cannot open file", COL_RED); return; }
-    String blob = "";
+    File out = SD.open("/.crub/logo", FILE_WRITE);
+    if (!out) { _con->print("cannot write logo", COL_RED); f.close(); return; }
     int rows = 0;
     while (f.available() && rows < 16) {
         String line = f.readStringUntil('\n');
         if (line.endsWith("\r")) line.remove(line.length() - 1);
-        if (blob.length() > 0) blob += "\n";
-        blob += line;
+        out.println(line);
         rows++;
     }
     f.close();
-    Preferences p;
-    p.begin("crubfetch", false);
-    p.putString("logo", blob);
-    p.end();
+    out.close();
     _con->print("logo updated", COL_OK);
 }
 
@@ -677,7 +680,7 @@ void Shell::fetchEdit() {
     char logo[16][16];
     int rows = fetchGetLogo(logo, 16);
 
-    File f = SD.open("/.crub_tmp", FILE_WRITE);
+    File f = SD.open("/.crub/tmp", FILE_WRITE);
     if (!f) { _con->print("cannot create temp", COL_RED); return; }
     for (int i = 0; i < rows; i++) {
         f.print(logo[i]);
@@ -686,29 +689,27 @@ void Shell::fetchEdit() {
     f.close();
 
     static Editor editor;
-    if (editor.open("/.crub_tmp")) {
+    if (editor.open("/.crub/tmp")) {
         editor.run();
         M5.Display.fillScreen(COL_BG);
         _con->redraw();
 
-        File rf = SD.open("/.crub_tmp", FILE_READ);
+        File rf = SD.open("/.crub/tmp", FILE_READ);
         if (rf) {
-            String blob = "";
-            int r = 0;
-            while (rf.available() && r < 16) {
-                String line = rf.readStringUntil('\n');
-                if (line.endsWith("\r")) line.remove(line.length() - 1);
-                if (blob.length() > 0) blob += "\n";
-                blob += line;
-                r++;
+            File out = SD.open("/.crub/logo", FILE_WRITE);
+            if (out) {
+                int r = 0;
+                while (rf.available() && r < 16) {
+                    String line = rf.readStringUntil('\n');
+                    if (line.endsWith("\r")) line.remove(line.length() - 1);
+                    out.println(line);
+                    r++;
+                }
+                out.close();
             }
             rf.close();
-            Preferences p;
-            p.begin("crubfetch", false);
-            p.putString("logo", blob);
-            p.end();
         }
-        SD.remove("/.crub_tmp");
+        SD.remove("/.crub/tmp");
         _con->print("logo saved", COL_OK);
     }
 }
@@ -895,6 +896,81 @@ void Shell::cmdBoots(const char* args) {
     if (ms > 10000) ms = 10000;
     drawBootScreen(ms);
     M5.Display.fillScreen(COL_BG);
+}
+
+static bool moveFile(const char* from, const char* to) {
+    if (!SD.exists(from)) return false;
+    File in = SD.open(from, FILE_READ);
+    if (!in) return false;
+    File out = SD.open(to, FILE_WRITE);
+    if (!out) { in.close(); return false; }
+    uint8_t buf[256];
+    while (in.available()) {
+        int n = in.read(buf, sizeof(buf));
+        if (n <= 0) break;
+        out.write(buf, n);
+    }
+    in.close();
+    out.close();
+    SD.remove(from);
+    return true;
+}
+
+void Shell::cmdCrub(const char* args) {
+    char sub[16];
+    parseArg(args, sub, sizeof(sub));
+
+    if (strcmp(sub, "version") == 0) {
+        _con->print("crub " CRUB_VERSION, COL_ORANGE);
+        return;
+    }
+
+    if (strcmp(sub, "fix") == 0) {
+        if (!SD.exists("/.crub")) SD.mkdir("/.crub");
+
+        struct Migration { const char* from; const char* to; };
+        static const Migration migs[] = {
+            { "/.crub_theme",   "/.crub/theme" },
+            { "/.crub_aliases", "/.crub/aliases" },
+            { "/.crub_boot",    "/.crub/boot" },
+            { "/.crub_fw",      "/.crub/fw" },
+        };
+
+        for (int i = 0; i < 4; i++) {
+            if (moveFile(migs[i].from, migs[i].to)) {
+                char msg[40];
+                const char* nm = strrchr(migs[i].to, '/') + 1;
+                snprintf(msg, sizeof(msg), "moved %s", nm);
+                _con->print(msg, COL_OK);
+            }
+        }
+
+        Preferences p;
+        p.begin("crubfw", false);
+        String oldFw = p.getString("name", "");
+        if (oldFw.length() > 0 && !SD.exists("/.crub/fw")) {
+            File f = SD.open("/.crub/fw", FILE_WRITE);
+            if (f) { f.print(oldFw); f.close(); }
+            p.remove("name");
+            _con->print("migrated fw", COL_OK);
+        }
+        p.end();
+
+        if (!SD.exists("/.crub/theme")) { saveTheme(); _con->print("created theme", COL_DIM); }
+        if (!SD.exists("/.crub/boot")) {
+            File bf = SD.open("/.crub/boot", FILE_WRITE);
+            if (bf) { bf.println("boots 1500"); bf.println("fetch"); bf.close(); }
+            _con->print("created boot", COL_DIM);
+        }
+
+        loadAliases();
+        loadTheme();
+        _con->print("crub fix done", COL_OK);
+        return;
+    }
+
+    _con->print("crub fix", COL_INFO);
+    _con->print("crub version", COL_INFO);
 }
 
 void Shell::cmdRun(const char* args) {
@@ -1839,11 +1915,8 @@ void Shell::cmdFlash(const char* args) {
 
     const char* fname = strrchr(path, '/');
     fname = fname ? fname + 1 : path;
-    delay(100);
-    Preferences fwPrefs;
-    fwPrefs.begin("crubfw", false);
-    fwPrefs.putString("name", fname);
-    fwPrefs.end();
+    File fwf = SD.open("/.crub/fw", FILE_WRITE);
+    if (fwf) { fwf.print(fname); fwf.close(); }
 
     _con->print("flash complete", COL_OK);
     _con->print("type 'launch' to boot", COL_OK);
@@ -1927,7 +2000,7 @@ bool Shell::growAliases() {
 
 void Shell::loadAliases() {
     _aliasCount = 0;
-    File f = SD.open("/.crub_aliases", FILE_READ);
+    File f = SD.open("/.crub/aliases", FILE_READ);
     if (!f) return;
     while (f.available()) {
         String n = f.readStringUntil('\n');
@@ -1946,7 +2019,7 @@ void Shell::loadAliases() {
 }
 
 void Shell::saveAliases() {
-    File f = SD.open("/.crub_aliases", FILE_WRITE);
+    File f = SD.open("/.crub/aliases", FILE_WRITE);
     if (!f) return;
     for (int i = 0; i < _aliasCount; i++) {
         f.println(_aliases[i].name);

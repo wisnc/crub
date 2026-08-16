@@ -63,6 +63,7 @@ private:
     void cmdWaits(const char* args);
     void cmdWaitms(const char* args);
     void cmdBoots(const char* args);
+    void cmdCrub(const char* args);
     void fetchRender();
     void fetchField(const char* field, char* out, int outSize);
     void fetchFields(const char* args);

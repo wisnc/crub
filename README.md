@@ -1,3 +1,4 @@
+
 # crub
 ---
 
@@ -64,10 +65,10 @@ then launch it with
 launch
 ```
 
-aliases can be externally edited (or with the built in editor) and is located as a text file in root directory in
+aliases can be externally edited (or with the built in editor) and is located as a text file in
 
 ```
-/.crub_aliases
+/.crub/aliases
 ```
 
 
@@ -97,11 +98,43 @@ echo second line >> /notes/test.txt
 ls /binaries > /logs/filelist.txt
 ```
 
-boot scripts run automatically if `/.crub_boot` exists on the SD card
+boot scripts run automatically if `/.crub/boot` exists on the SD card. the boot screen itself is just a command, `boots <ms>`, so the default boot script is
+
+```
+boots 1500
+fetch
+```
+
+delete the `boots` line to skip the splash, change the number to adjust how long it shows, or replace everything with `launch -f` for instant firmware boot
+
+for waiting in scripts, `waits <seconds>` and `waitms <milliseconds>` are also available alongside `sleep`
+
+### customizing fetch
+
+fetch can be reconfigured without touching code. pick which fields show and in what order
+
+```
+fetch fields cpu ram bat uptime mac temp
+```
+
+available fields are cpu, ram, flash, boot, fw, sd, lcd, bat, uptime, mac, and temp. `fetch fields reset` restores the default set
+
+change the ascii art with any file, or edit it directly in the editor
+
+```
+fetch logo /path/to/art.txt
+fetch edit
+```
+
+`fetch logo reset` restores the built in logo. fetch config lives in `/.crub/`
+
+### crub fix
+
+all crub config lives under a single `/.crub/` directory. run `crub fix` to move any old loose config files into it and create missing defaults
 
 ### Themes!
 
-on boot, a `/.crub_theme` is created which contains the default theme of crub, edit it with the editor
+on boot, a `/.crub/theme` is created which contains the default theme of crub, edit it with the editor
 
 ```
 color primary 00D0FF
@@ -112,14 +145,14 @@ color warn FFD000
 color error FF4040
 ```
 
-these are the default values for the theme and can be found on the `.crub_theme` file.
+these are the default values for the theme and can be found on the `/.crub/theme` file.
 
 ### fast firmware boot
 
-write `launch -f` to `/.crub_boot` and crub will skip the boot screen and launch installed firmware instantly on power on. remove the SD card to enter crub normally
+write `launch -f` to `/.crub/boot` and crub will skip the boot screen and launch installed firmware instantly on power on. remove the SD card to enter crub normally
 
 ```
-echo launch -f > /.crub_boot
+echo launch -f > /.crub/boot
 ```
 
 you can also quickly do calculations. start the expression with '='. for example
@@ -159,9 +192,24 @@ display can also be controlled with `bright <0-255>`, Fn + _ and Fn + = for dimm
 
 `Opt + ;` move to top of the file
 
+pressing right at the end of a line wraps to the start of the next line
+
 ---
 
 ## Version History / Changelog
+
+### 2.8.1
+
+- all crub config moved to a single `/.crub/` directory to stop cluttering the SD root
+- added `crub fix` command to migrate old config files and create missing defaults
+- moved fetch config and firmware name to SD since NVS was getting overwritten during flashing
+
+### 2.8.0
+
+- fetch is now customizable with `fetch fields`, `fetch logo`, and `fetch edit`
+- boot screen is now a command, `boots <ms>`, controlled from the boot script
+- added `waits` and `waitms` for scripting
+- editor cursor now wraps to the next line at the end of a line
 
 ### 2.7.0
 - THEME UPDATE

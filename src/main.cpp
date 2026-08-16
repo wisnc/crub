@@ -158,10 +158,11 @@ void setup() {
     if (SD.begin(12, SPI, 25000000)) sdReady = true;
 
     if (sdReady) {
+        if (!SD.exists("/.crub")) SD.mkdir("/.crub");
         loadTheme();
-        if (!SD.exists("/.crub_theme")) saveTheme();
-        if (!SD.exists("/.crub_boot")) {
-            File bf = SD.open("/.crub_boot", FILE_WRITE);
+        if (!SD.exists("/.crub/theme")) saveTheme();
+        if (!SD.exists("/.crub/boot")) {
+            File bf = SD.open("/.crub/boot", FILE_WRITE);
             if (bf) { bf.println("boots 1500"); bf.println("fetch"); bf.close(); }
         }
     }
@@ -170,8 +171,8 @@ void setup() {
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
     if (otadata) esp_partition_erase_range(otadata, 0, otadata->size);
 
-    if (sdReady && SD.exists("/.crub_boot")) {
-        File bf = SD.open("/.crub_boot", FILE_READ);
+    if (sdReady && SD.exists("/.crub/boot")) {
+        File bf = SD.open("/.crub/boot", FILE_READ);
         if (bf) {
             bool fastLaunch = false;
             while (bf.available()) {
@@ -211,8 +212,8 @@ void setup() {
     scrollReady = (Wire.endTransmission() == 0);
     if (scrollReady) scrollReadInc();
 
-    if (sdReady && SD.exists("/.crub_boot")) {
-        shell.process("run /.crub_boot");
+    if (sdReady && SD.exists("/.crub/boot")) {
+        shell.process("run /.crub/boot");
     } else {
         drawBootScreen(0);
         delay(1500);
