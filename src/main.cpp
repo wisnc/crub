@@ -71,7 +71,70 @@ static const uint8_t LOGO_B[] = {
 static const int LOGO_CRU_H = 7;
 static const int LOGO_B_H = 9;
 
+#define BOOTSCREEN_PATH "/.crub/bootscreen.bmp"
+
+static bool drawBootBmp(const char* path) {
+    File f = SD.open(path, FILE_READ);
+    if (!f) return false;
+
+    uint8_t hdr[54];
+    if (f.read(hdr, 54) != 54) { f.close(); return false; }
+    if (hdr[0] != 'B' || hdr[1] != 'M') { f.close(); return false; }
+
+    uint32_t dataOfs = (uint32_t)hdr[10] | ((uint32_t)hdr[11] << 8) |
+                       ((uint32_t)hdr[12] << 16) | ((uint32_t)hdr[13] << 24);
+    int32_t w = (int32_t)((uint32_t)hdr[18] | ((uint32_t)hdr[19] << 8) |
+                          ((uint32_t)hdr[20] << 16) | ((uint32_t)hdr[21] << 24));
+    int32_t h = (int32_t)((uint32_t)hdr[22] | ((uint32_t)hdr[23] << 8) |
+                          ((uint32_t)hdr[24] << 16) | ((uint32_t)hdr[25] << 24));
+    uint16_t bpp = (uint16_t)hdr[28] | ((uint16_t)hdr[29] << 8);
+    uint32_t comp = (uint32_t)hdr[30] | ((uint32_t)hdr[31] << 8) |
+                    ((uint32_t)hdr[32] << 16) | ((uint32_t)hdr[33] << 24);
+
+    bool topDown = (h < 0);
+    if (topDown) h = -h;
+    if (w != 240 || h != 135 || bpp != 24 || comp != 0) { f.close(); return false; }
+
+    static uint8_t row[720];
+    static uint16_t line[240];
+
+    if (!f.seek(dataOfs)) { f.close(); return false; }
+
+    bool oldSwap = M5.Display.getSwapBytes();
+    M5.Display.setSwapBytes(true);
+    M5.Display.startWrite();
+
+    bool ok = true;
+    for (int y = 0; y < h; y++) {
+        if (f.read(row, 720) != 720) { ok = false; break; }
+        for (int x = 0; x < w; x++) {
+            uint8_t b = row[x * 3];
+            uint8_t g = row[x * 3 + 1];
+            uint8_t r = row[x * 3 + 2];
+            line[x] = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        }
+        int dy = topDown ? y : (h - 1 - y);
+        M5.Display.pushImage(0, dy, w, 1, line);
+    }
+
+    M5.Display.endWrite();
+    M5.Display.setSwapBytes(oldSwap);
+    f.close();
+    return ok;
+}
+
 void drawBootScreen(int holdMs) {
+    uint32_t t0 = millis();
+
+    bool custom = drawBootBmp(BOOTSCREEN_PATH);
+    if (custom) {
+        if (holdMs > 0) {
+            uint32_t elapsed = millis() - t0;
+            if ((uint32_t)holdMs > elapsed) delay(holdMs - elapsed);
+        }
+        return;
+    }
+
     M5.Display.fillScreen(COL_BG);
 
     for (int y = 0; y < 135; y += 8)
@@ -127,7 +190,10 @@ void drawBootScreen(int holdMs) {
     M5.Display.setCursor((240 - strlen(ver) * 6) / 2, subY + 16);
     M5.Display.print(ver);
 
-    if (holdMs > 0) delay(holdMs);
+    if (holdMs > 0) {
+        uint32_t elapsed = millis() - t0;
+        if ((uint32_t)holdMs > elapsed) delay(holdMs - elapsed);
+    }
 }
 
 static int32_t scrollReadInc() {
@@ -190,7 +256,23 @@ void setup() {
         }
     }
 
-    con.init();
+    con.reset();
+    shell.init(&con);
+
+    if (sdReady && SD.exists("/.crub/boot")) {
+        shell.process("run /.crub/boot");
+    } else {
+        drawBootScreen(1500);
+        con.init();
+        con.print("crub " CRUB_VERSION, COL_ORANGE);
+        const esp_partition_t* running = esp_ota_get_running_partition();
+        if (running) {
+            char msg[48];
+            snprintf(msg, sizeof(msg), "running: %s @0x%lX",
+                     running->label, (unsigned long)running->address);
+            con.print(msg, COL_DIM);
+        }
+    }
 
     if (sdReady) {
         msc.vendorID("M5Stack");
@@ -205,28 +287,10 @@ void setup() {
         USB.begin();
     }
 
-    shell.init(&con);
-
     Wire.begin(GROVE_SDA, GROVE_SCL, 400000U);
     Wire.beginTransmission(SCROLL_ADDR);
     scrollReady = (Wire.endTransmission() == 0);
     if (scrollReady) scrollReadInc();
-
-    if (sdReady && SD.exists("/.crub/boot")) {
-        shell.process("run /.crub/boot");
-    } else {
-        drawBootScreen(0);
-        delay(1500);
-        con.init();
-        con.print("crub " CRUB_VERSION, COL_ORANGE);
-        const esp_partition_t* running = esp_ota_get_running_partition();
-        if (running) {
-            char msg[48];
-            snprintf(msg, sizeof(msg), "running: %s @0x%lX",
-                     running->label, (unsigned long)running->address);
-            con.print(msg, COL_DIM);
-        }
-    }
 
     con.redraw();
 }

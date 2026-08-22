@@ -90,13 +90,17 @@ void saveTheme() {
 }
 
 
-void Console::init() {
+void Console::reset() {
     _histHead = 0;
     _histCount = 0;
     _inputLen = 0;
     _scrollOffset = 0;
     _barHistIdx = -1;
     memset(_input, 0, INPUT_MAX);
+}
+
+void Console::init() {
+    reset();
     M5.Display.fillScreen(COL_BG);
     drawBorder();
 }
