@@ -109,6 +109,22 @@ delete the `boots` line to skip the splash, change the number to adjust how long
 
 for waiting in scripts, `waits <seconds>` and `waitms <milliseconds>` are also available alongside `sleep`
 
+### boot screen
+
+drop a bmp at `/.crub/bootscreen.bmp` and `boots` will show it instead of the built in logo. it has to be exactly 240x135.
+
+convert and scale any image with ffmpeg. example below
+
+```
+ffmpeg -i input.png -vf scale=240:135:flags=lanczos -pix_fmt bgr24 bootscreen.bmp
+```
+
+if the source is not 16:9 that command stretches it. to crop to fill instead
+
+```
+ffmpeg -i input.png -vf "scale=240:135:force_original_aspect_ratio=increase:flags=lanczos,crop=240:135" -pix_fmt bgr24 bootscreen.bmp
+```
+
 ### customizing fetch
 
 fetch can be reconfigured without touching code. pick which fields show and in what order
@@ -197,6 +213,11 @@ pressing right at the end of a line wraps to the start of the next line
 ---
 
 ## Version History / Changelog
+
+### 2.9.0
+
+- custom boot screens. put a 240x135 at `/.crub/bootscreen.bmp`
+- boot script now runs before console and USB init. the border no longer flashes before the boot screen
 
 ### 2.8.1
 
