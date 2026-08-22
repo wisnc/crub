@@ -58,6 +58,7 @@ private:
     void cmdBright(const char* args);
     void cmdSdInit();
     void cmdColor(const char* args);
+    void cmdBg(const char* args);
     void cmdHistory();
     void cmdFetch(const char* args);
     void cmdWaits(const char* args);

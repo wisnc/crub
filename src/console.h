@@ -24,6 +24,13 @@ extern uint16_t COL_GRID;
 
 void loadTheme();
 void saveTheme();
+
+extern char bgPath[64];
+extern bool bgBlur;
+extern uint8_t bgTrans;
+extern bool bgActive;
+void bgApply();
+void bgClearConfig();
 void resetTheme();
 bool setColorByName(const char* name, uint16_t value);
 uint16_t getColorByName(const char* name);
@@ -41,6 +48,8 @@ public:
 
     void init();
     void reset();
+    void clearScreen();
+    void redrawInput();
     void print(const char* text, uint16_t color = COL_ORANGE);
     void printBar(const uint16_t* colors, int len);
     void redraw();
@@ -80,6 +89,7 @@ private:
 
     void addLine(const char* text, uint16_t color);
     void drawBorder();
+    void bgFill(int x, int y, int w, int h);
     void drawHistory();
     void drawInput();
 };

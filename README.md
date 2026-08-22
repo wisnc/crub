@@ -150,7 +150,7 @@ all crub config lives under a single `/.crub/` directory. run `crub fix` to move
 
 ### Themes!
 
-on boot, a `/.crub/theme` is created which contains the default theme of crub, edit it with the editor
+on boot, a `/.crub/theme` is created which contains the default theme of crub, edit it with the editor. you are also able to use .bmp files as a background for the console, make sure it is also 240x135.
 
 ```
 color primary 00D0FF
@@ -159,7 +159,12 @@ color info FFFFFF
 color ok 00FF88
 color warn FFD000
 color error FF4040
+
+background <file.bmp>
+blur on|off
+bgtrans <0-255>
 ```
+
 
 these are the default values for the theme and can be found on the `/.crub/theme` file.
 
@@ -170,6 +175,9 @@ write `launch -f` to `/.crub/boot` and crub will skip the boot screen and launch
 ```
 echo launch -f > /.crub/boot
 ```
+
+
+### calculations
 
 you can also quickly do calculations. start the expression with '='. for example
 
@@ -218,6 +226,7 @@ pressing right at the end of a line wraps to the start of the next line
 
 - custom boot screens. put a 240x135 at `/.crub/bootscreen.bmp`
 - boot script now runs before console and USB init. the border no longer flashes before the boot screen
+- background on the console feature
 
 ### 2.8.1
 

@@ -270,6 +270,7 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "bright") == 0)   cmdBright(args);
     else if (strcmp(cmd, "sd") == 0)       cmdSdInit();
     else if (strcmp(cmd, "color") == 0)    cmdColor(args);
+    else if (strcmp(cmd, "bg") == 0)       cmdBg(args);
     else if (strcmp(cmd, "history") == 0)  cmdHistory();
     else if (strcmp(cmd, "clear") == 0)    cmdClear();
     else if (strcmp(cmd, "flash") == 0)    cmdFlash(args);
@@ -442,7 +443,11 @@ void Shell::cmdEdit(const char* args) {
     static Editor editor;
     if (editor.open(path)) {
         editor.run();
-        M5.Display.fillScreen(COL_BG);
+        if (strcmp(path, "/.crub/theme") == 0) {
+            loadTheme();
+            bgApply();
+        }
+        _con->clearScreen();
         _con->redraw();
     } else {
         _con->print("cannot open file", COL_RED);
@@ -473,6 +478,7 @@ void Shell::cmdHelp() {
     _con->print(" i2cscan beep usbsd =expr", COL_INFO);
     _con->print(" bright <0-255> sd", COL_INFO);
     _con->print(" color <role> <hex>", COL_INFO);
+    _con->print(" bg <bmp|none|blur|trans>", COL_INFO);
     _con->print(" history", COL_INFO);
     _con->print("fetch cfg:", COL_INFO);
     _con->print(" fetch fields <list>", COL_INFO);
@@ -691,7 +697,7 @@ void Shell::fetchEdit() {
     static Editor editor;
     if (editor.open("/.crub/tmp")) {
         editor.run();
-        M5.Display.fillScreen(COL_BG);
+        _con->clearScreen();
         _con->redraw();
 
         File rf = SD.open("/.crub/tmp", FILE_READ);
@@ -895,7 +901,7 @@ void Shell::cmdBoots(const char* args) {
     if (ms < 0) ms = 0;
     if (ms > 10000) ms = 10000;
     drawBootScreen(ms);
-    M5.Display.fillScreen(COL_BG);
+    _con->clearScreen();
 }
 
 static bool moveFile(const char* from, const char* to) {
@@ -965,6 +971,7 @@ void Shell::cmdCrub(const char* args) {
 
         loadAliases();
         loadTheme();
+        bgApply();
         _con->print("crub fix done", COL_OK);
         return;
     }
@@ -1091,7 +1098,7 @@ void Shell::cmdUsbSd() {
     msc.mediaPresent(false);
     usbSdActive = false;
 
-    M5.Display.fillScreen(COL_BG);
+    _con->clearScreen();
     _con->print("USB SD mode exited", COL_OK);
     _con->redraw();
 }
@@ -1125,12 +1132,88 @@ void Shell::cmdSdInit() {
         _con->print(msg, COL_OK);
         loadAliases();
         loadTheme();
+        bgApply();
         char amsg[24];
         snprintf(amsg, sizeof(amsg), "aliases: %d loaded", _aliasCount);
         _con->print(amsg, COL_DIM);
     } else {
         _con->print("SD: not found", COL_RED);
     }
+}
+
+void Shell::cmdBg(const char* args) {
+    char sub[64];
+    const char* rest = parseArg(args, sub, sizeof(sub));
+
+    if (sub[0] == '\0') {
+        if (bgPath[0]) {
+            _con->print(bgPath, COL_INFO);
+            char msg[32];
+            snprintf(msg, sizeof(msg), "blur %s  trans %d",
+                     bgBlur ? "on" : "off", (int)bgTrans);
+            _con->print(msg, COL_DIM);
+            if (!bgActive) _con->print("(failed to load)", COL_RED);
+        } else {
+            _con->print("no background set", COL_DIM);
+            _con->print("bg <file.bmp> | none", COL_DIM);
+            _con->print("bg blur on|off", COL_DIM);
+            _con->print("bg trans <0-255>", COL_DIM);
+        }
+        return;
+    }
+
+    if (strcmp(sub, "none") == 0) {
+        bgClearConfig();
+        saveTheme();
+        _con->clearScreen();
+        _con->print("background removed", COL_OK);
+        _con->redraw();
+        return;
+    }
+
+    if (strcmp(sub, "blur") == 0) {
+        char v[8];
+        parseArg(rest, v, sizeof(v));
+        bgBlur = (strcmp(v, "on") == 0 || strcmp(v, "true") == 0 || strcmp(v, "1") == 0);
+        if (bgPath[0]) { bgApply(); saveTheme(); }
+        _con->clearScreen();
+        _con->print(bgBlur ? "blur on" : "blur off", COL_OK);
+        _con->redraw();
+        return;
+    }
+
+    if (strcmp(sub, "trans") == 0) {
+        char v[8];
+        parseArg(rest, v, sizeof(v));
+        int t = atoi(v);
+        if (t < 0) t = 0;
+        if (t > 255) t = 255;
+        bgTrans = (uint8_t)t;
+        if (bgPath[0]) { bgApply(); saveTheme(); }
+        _con->clearScreen();
+        char msg[20];
+        snprintf(msg, sizeof(msg), "bgtrans %d", t);
+        _con->print(msg, COL_OK);
+        _con->redraw();
+        return;
+    }
+
+    char path[256];
+    resolvePath(sub, path, sizeof(path));
+    if (!SD.exists(path)) { _con->print("file not found", COL_RED); return; }
+    if (strlen(path) >= sizeof(bgPath)) { _con->print("path too long", COL_RED); return; }
+    strncpy(bgPath, path, sizeof(bgPath) - 1);
+    bgPath[sizeof(bgPath) - 1] = '\0';
+    bgApply();
+    if (!bgActive) {
+        _con->print("not a 240x135 24bit bmp", COL_RED);
+        bgClearConfig();
+        return;
+    }
+    saveTheme();
+    _con->clearScreen();
+    _con->print("background set", COL_OK);
+    _con->redraw();
 }
 
 void Shell::cmdColor(const char* args) {
@@ -1153,8 +1236,9 @@ void Shell::cmdColor(const char* args) {
 
     if (strcmp(sub, "reset") == 0) {
         resetTheme();
+        if (bgActive) bgApply();
         saveTheme();
-        M5.Display.fillScreen(COL_BG);
+        _con->clearScreen();
         _con->print("theme reset", COL_OK);
         _con->redraw();
         return;
@@ -1192,8 +1276,9 @@ void Shell::cmdColor(const char* args) {
         return;
     }
 
+    if (bgActive && strcmp(sub, "bg") == 0) bgApply();
     saveTheme();
-    M5.Display.fillScreen(COL_BG);
+    _con->clearScreen();
     char msg[24];
     snprintf(msg, sizeof(msg), "%s updated", sub);
     _con->print(msg, COL_OK);

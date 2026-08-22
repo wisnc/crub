@@ -226,6 +226,7 @@ void setup() {
     if (sdReady) {
         if (!SD.exists("/.crub")) SD.mkdir("/.crub");
         loadTheme();
+        bgApply();
         if (!SD.exists("/.crub/theme")) saveTheme();
         if (!SD.exists("/.crub/boot")) {
             File bf = SD.open("/.crub/boot", FILE_WRITE);
@@ -298,6 +299,7 @@ void setup() {
 void loop() {
     M5Cardputer.update();
     bool needRedraw = false;
+    bool needInput = false;
 
     if (scrollReady) {
         int32_t inc = scrollReadInc();
@@ -318,10 +320,10 @@ void loop() {
 
         if (keys.ctrl) {
             for (auto c : keys.word) {
-                if (c == ';') { shell.historyPrev(&con); needRedraw = true; }
-                if (c == '.') { shell.historyNext(&con); needRedraw = true; }
+                if (c == ';') { shell.historyPrev(&con); needInput = true; }
+                if (c == '.') { shell.historyNext(&con); needInput = true; }
             }
-            if (needRedraw) goto done;
+            if (needInput) goto done;
         }
 
         if (keys.fn) {
@@ -351,7 +353,7 @@ void loop() {
         else if (keys.del) {
             con.inputBackspace();
             shell.tabReset();
-            needRedraw = true;
+            needInput = true;
         }
         else if (keys.enter) {
             char cmdBuf[128];
@@ -369,18 +371,12 @@ void loop() {
                 if (c >= 32 && c < 127) con.inputChar(c);
             }
             shell.tabReset();
-            needRedraw = true;
+            needInput = true;
         }
     }
 
 done:
-    static unsigned long lastBlink = 0;
-    unsigned long now = millis();
-    if (now - lastBlink > 500) {
-        lastBlink = now;
-        needRedraw = true;
-    }
-
     if (needRedraw) con.redraw();
+    else if (needInput) con.redrawInput();
     delay(10);
 }
