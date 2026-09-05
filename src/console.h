@@ -7,7 +7,7 @@
 #include <M5Cardputer.h>
 #include <SD.h>
 
-#define CRUB_VERSION "3.0.1"
+#define CRUB_VERSION "3.0.0"
 
 #define C565(r,g,b) (((r>>3)<<11)|((g>>2)<<5)|(b>>3))
 
