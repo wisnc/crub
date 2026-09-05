@@ -218,9 +218,29 @@ display can also be controlled with `bright <0-255>`, Fn + _ and Fn + = for dimm
 
 pressing right at the end of a line wraps to the start of the next line
 
+
+### multiple firmwares
+
+previously(pre v3.0.0), pt subcommands create, resize, and delete, was not working. 
+
+crub can now create new partitions, resize and delete existing partitions. This opens up the possibility of multiple firmwares to exist and switch very quickly without reflashing.
+
+`pt create app1 app 1280` creates a 1280kb app partition allowing you to flash firmware on it within 1280kb size limit
+
+`launch -f app1` launches firmware from the app1 partition with fast `-f` flag
+
+your imagination and 8MB is your limit with app combinations! 
+
+!!! make sure your app partition sizes are divisible by 64kb !!!
+
 ---
 
 ## Version History / Changelog
+
+### 3.0.0
+
+- multiple firmwares now supported!
+- pt create/resize/delete fixed
 
 ### 2.9.0
 
