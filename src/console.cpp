@@ -373,24 +373,36 @@ void Console::drawInput() {
 
     M5.Display.setTextSize(1);
 
-    char display[37];
-    memset(display, ' ', COLS);
-    display[COLS] = '\0';
-    display[0] = '>';
+    int promptLen = strlen(_prompt);
+    int visChars = COLS - promptLen;
+    if (visChars < 4) visChars = 4;
 
-    int visChars = COLS - 2;
-    int dispStart = 0;
-    if (_inputLen > visChars) dispStart = _inputLen - visChars;
-    int written = _inputLen - dispStart;
+    if (_cursor < _dispStart) _dispStart = _cursor;
+    if (_cursor - _dispStart > visChars - 1) _dispStart = _cursor - (visChars - 1);
+    if (_dispStart < 0) _dispStart = 0;
+
+    int written = _inputLen - _dispStart;
     if (written > visChars) written = visChars;
-    memcpy(&display[1], &_input[dispStart], written);
+    if (written < 0) written = 0;
 
-    int cursorPos = 1 + written;
-    if (cursorPos < COLS) display[cursorPos] = '_';
+    char seg[INPUT_MAX];
+    memcpy(seg, &_input[_dispStart], written);
+    seg[written] = '\0';
 
-    M5.Display.setTextColor(COL_ORANGE);
+    M5.Display.setTextColor(COL_DIM);
     M5.Display.setCursor(CONTENT_X, y);
-    M5.Display.print(display);
+    M5.Display.print(_prompt);
+
+    int textX = CONTENT_X + promptLen * FONT_W;
+    M5.Display.setTextColor(COL_ORANGE);
+    M5.Display.setCursor(textX, y);
+    M5.Display.print(seg);
+
+    int cursorCol = _cursor - _dispStart;
+    if (cursorCol < visChars) {
+        M5.Display.setCursor(textX + cursorCol * FONT_W, y);
+        M5.Display.print("_");
+    }
 }
 
 void Console::redraw() {
@@ -400,17 +412,38 @@ void Console::redraw() {
 }
 
 void Console::inputChar(char c) {
-    if (_inputLen < INPUT_MAX - 1) {
-        _input[_inputLen++] = c;
-        _input[_inputLen] = '\0';
-    }
+    if (_inputLen >= INPUT_MAX - 1) return;
+    memmove(&_input[_cursor + 1], &_input[_cursor], _inputLen - _cursor);
+    _input[_cursor] = c;
+    _inputLen++;
+    _cursor++;
+    _input[_inputLen] = '\0';
 }
 
 void Console::inputBackspace() {
-    if (_inputLen > 0) {
-        _inputLen--;
-        _input[_inputLen] = '\0';
-    }
+    if (_cursor == 0) return;
+    memmove(&_input[_cursor - 1], &_input[_cursor], _inputLen - _cursor);
+    _inputLen--;
+    _cursor--;
+    _input[_inputLen] = '\0';
+}
+
+void Console::inputLeft() {
+    if (_cursor > 0) _cursor--;
+}
+
+void Console::inputRight() {
+    if (_cursor < _inputLen) _cursor++;
+}
+
+void Console::inputCancel() {
+    char echo[INPUT_MAX + 24];
+    snprintf(echo, sizeof(echo), "%s%s^C", _prompt, _input);
+    print(echo, COL_ECHO);
+    _inputLen = 0;
+    _cursor = 0;
+    _dispStart = 0;
+    _input[0] = '\0';
 }
 
 bool Console::inputEnter(char* outBuf, int outBufSize) {
@@ -418,11 +451,13 @@ bool Console::inputEnter(char* outBuf, int outBufSize) {
     strncpy(outBuf, _input, outBufSize - 1);
     outBuf[outBufSize - 1] = '\0';
 
-    char echo[INPUT_MAX + 2];
-    snprintf(echo, sizeof(echo), ">%s", _input);
+    char echo[INPUT_MAX + 24];
+    snprintf(echo, sizeof(echo), "%s%s", _prompt, _input);
     print(echo, COL_ECHO);
 
     _inputLen = 0;
+    _cursor = 0;
+    _dispStart = 0;
     _input[0] = '\0';
     return true;
 }
@@ -431,6 +466,17 @@ void Console::setInput(const char* text) {
     strncpy(_input, text, INPUT_MAX - 1);
     _input[INPUT_MAX - 1] = '\0';
     _inputLen = strlen(_input);
+    _cursor = _inputLen;
+}
+
+void Console::setPrompt(const char* cwd) {
+    const int maxCwd = 14;
+    int len = strlen(cwd);
+    if (len <= maxCwd) {
+        snprintf(_prompt, sizeof(_prompt), "%s > ", cwd);
+    } else {
+        snprintf(_prompt, sizeof(_prompt), "..%s > ", cwd + (len - (maxCwd - 2)));
+    }
 }
 
 void Console::scrollUp() {

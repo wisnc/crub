@@ -74,6 +74,7 @@ static uint32_t getAppImageSize(const esp_partition_t* part) {
 void Shell::init(Console* con) {
     _con = con;
     strcpy(_cwd, "/");
+    _con->setPrompt(_cwd);
     _aliasCount = 0;
     _tabActive = false;
     _tabCount = 0;
@@ -329,23 +330,25 @@ void Shell::cmdLs(const char* args) {
 }
 
 void Shell::cmdCd(const char* args) {
-    if (*args == '\0') { strcpy(_cwd, "/"); return; }
-    if (strcmp(args, "..") == 0) {
+    if (*args == '\0') {
+        strcpy(_cwd, "/");
+    } else if (strcmp(args, "..") == 0) {
         char* last = strrchr(_cwd, '/');
         if (last && last != _cwd) *last = '\0';
         else strcpy(_cwd, "/");
-        return;
+    } else {
+        char path[256];
+        resolvePath(args, path, sizeof(path));
+        File dir = SD.open(path);
+        if (!dir || !dir.isDirectory()) {
+            _con->print("not a directory", COL_RED);
+            if (dir) dir.close();
+            return;
+        }
+        dir.close();
+        strncpy(_cwd, path, sizeof(_cwd) - 1);
     }
-    char path[256];
-    resolvePath(args, path, sizeof(path));
-    File dir = SD.open(path);
-    if (!dir || !dir.isDirectory()) {
-        _con->print("not a directory", COL_RED);
-        if (dir) dir.close();
-        return;
-    }
-    dir.close();
-    strncpy(_cwd, path, sizeof(_cwd) - 1);
+    _con->setPrompt(_cwd);
 }
 
 void Shell::cmdPwd() { _con->print(_cwd, COL_ORANGE); }

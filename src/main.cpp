@@ -320,16 +320,23 @@ void loop() {
 
         if (keys.ctrl) {
             for (auto c : keys.word) {
-                if (c == ';') { shell.historyPrev(&con); needInput = true; }
-                if (c == '.') { shell.historyNext(&con); needInput = true; }
+                if (c == 'c' || c == 'C') {
+                    con.inputCancel();
+                    shell.tabReset();
+                    needRedraw = true;
+                }
+                if (c == ';' || c == ':') { con.scrollUp(); needRedraw = true; }
+                if (c == '.' || c == '>') { con.scrollDown(); needRedraw = true; }
             }
-            if (needInput) goto done;
+            if (needRedraw) goto done;
         }
 
         if (keys.fn) {
             for (auto c : keys.word) {
-                if (c == ';') { con.scrollUp(); needRedraw = true; }
-                if (c == '.') { con.scrollDown(); needRedraw = true; }
+                if (c == ';') { shell.historyPrev(&con); needInput = true; }
+                if (c == '.') { shell.historyNext(&con); needInput = true; }
+                if (c == ',') { con.inputLeft(); needInput = true; }
+                if (c == '/') { con.inputRight(); needInput = true; }
                 if (c == '-') {
                     if (brightness > BRIGHT_STEP) brightness -= BRIGHT_STEP;
                     else brightness = 1;
@@ -343,7 +350,7 @@ void loop() {
                     needRedraw = true;
                 }
             }
-            if (needRedraw) goto done;
+            if (needRedraw || needInput) goto done;
         }
 
         if (keys.tab) {

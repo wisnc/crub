@@ -7,7 +7,7 @@
 #include <M5Cardputer.h>
 #include <SD.h>
 
-#define CRUB_VERSION "3.0.0"
+#define CRUB_VERSION "3.0.1"
 
 #define C565(r,g,b) (((r>>3)<<11)|((g>>2)<<5)|(b>>3))
 
@@ -59,10 +59,14 @@ public:
 
     void inputChar(char c);
     void inputBackspace();
+    void inputLeft();
+    void inputRight();
+    void inputCancel();
     bool inputEnter(char* outBuf, int outBufSize);
     const char* getInput() const { return _input; }
     int getInputLen() const { return _inputLen; }
     void setInput(const char* text);
+    void setPrompt(const char* cwd);
 
     void scrollUp();
     void scrollDown();
@@ -81,6 +85,9 @@ private:
 
     char _input[INPUT_MAX];
     int  _inputLen = 0;
+    int  _cursor = 0;
+    int  _dispStart = 0;
+    char _prompt[20] = "/ > ";
 
     int _barHistIdx = -1;
     uint16_t _barCharColors[COLS];
