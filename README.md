@@ -125,6 +125,16 @@ if the source is not 16:9 that command stretches it. to crop to fill instead
 ffmpeg -i input.png -vf "scale=240:135:force_original_aspect_ratio=increase:flags=lanczos,crop=240:135" -pix_fmt bgr24 bootscreen.bmp
 ```
 
+### usbsd
+
+crub has the capability to connect to a PC/smartphone and act as an SD Card reader (reading the inserted SD card on the cardputer). before plugging in, enter the command
+
+```
+usbsd
+```
+
+connect your cardputer via usbc to usbc or usba to a pc/smartphone and refresh your drives. you should be able to see the SD card and manage your files from your pc/smartphone
+
 ### customizing fetch
 
 fetch can be reconfigured without touching code. pick which fields show and in what order
