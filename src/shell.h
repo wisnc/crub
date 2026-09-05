@@ -118,7 +118,9 @@ private:
     bool _pendingDirty = false;
     void initPending();
     void sortPending();
-    uint32_t findGap(uint32_t size);
+    uint32_t findGap(uint32_t size, bool isApp);
+    uint32_t appImageLen(uint32_t offset, uint32_t size);
+    bool validatePending();
     void ptInfo();
     void ptInfoFile(const char* args);
     void ptCreate(const char* args);

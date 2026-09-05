@@ -227,6 +227,7 @@ pressing right at the end of a line wraps to the start of the next line
 - custom boot screens. put a 240x135 at `/.crub/bootscreen.bmp`
 - boot script now runs before console and USB init. the border no longer flashes before the boot screen
 - background on the console feature
+- crub partition grown from 704K to 768K. app0 moves to 0xD0000, re-fetch firmware after flashing the new table
 
 ### 2.8.1
 

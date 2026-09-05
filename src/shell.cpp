@@ -11,6 +11,7 @@
 #include <Wire.h>
 #include "mbedtls/md5.h"
 #include "esp_flash.h"
+#include "esp_image_format.h"
 #include "USBMSC.h"
 #include <Preferences.h>
 #include <esp_mac.h>
@@ -1364,19 +1365,51 @@ bool Shell::isProtected(const char* label) {
            strcmp(label, "test") == 0;
 }
 
-uint32_t Shell::findGap(uint32_t size) {
+uint32_t Shell::findGap(uint32_t size, bool isApp) {
     sortPending();
+    uint32_t mask = isApp ? 0xFFFF : 0xFFF;
     uint32_t cursor = 0x9000;
     for (int i = 0; i < _pendingCount; i++) {
-        uint32_t aligned = (cursor + 0xFFF) & ~0xFFF;
+        uint32_t aligned = (cursor + mask) & ~mask;
         if (_pending[i].offset >= aligned + size)
             return aligned;
         cursor = _pending[i].offset + _pending[i].size;
     }
-    uint32_t aligned = (cursor + 0xFFF) & ~0xFFF;
+    uint32_t aligned = (cursor + mask) & ~mask;
     if (0x800000 >= aligned + size)
         return aligned;
     return 0;
+}
+
+uint32_t Shell::appImageLen(uint32_t offset, uint32_t size) {
+    esp_partition_pos_t pos = { offset, size };
+    esp_image_metadata_t meta;
+    if (esp_image_get_metadata(&pos, &meta) != ESP_OK) return 0;
+    return meta.image_len;
+}
+
+bool Shell::validatePending() {
+    sortPending();
+    for (int i = 0; i < _pendingCount; i++) {
+        FlashPart* p = &_pending[i];
+        char msg[48];
+        if (p->type == 0 && (p->offset & 0xFFFF)) {
+            snprintf(msg, sizeof(msg), "%s not 64K aligned", p->label);
+            _con->print(msg, COL_RED);
+            return false;
+        }
+        if (p->offset + p->size > 0x800000) {
+            snprintf(msg, sizeof(msg), "%s past end of flash", p->label);
+            _con->print(msg, COL_RED);
+            return false;
+        }
+        if (i + 1 < _pendingCount && p->offset + p->size > _pending[i + 1].offset) {
+            snprintf(msg, sizeof(msg), "%s overlaps %s", p->label, _pending[i + 1].label);
+            _con->print(msg, COL_RED);
+            return false;
+        }
+    }
+    return true;
 }
 
 void Shell::cmdPt(const char* args) {
@@ -1556,7 +1589,7 @@ void Shell::ptCreate(const char* args) {
     size = (size + 0xFFF) & ~0xFFF;
     if (size == 0) { _con->print("invalid size", COL_RED); return; }
 
-    uint32_t offset = findGap(size);
+    uint32_t offset = findGap(size, type == 0);
     if (offset == 0) {
         _con->print("no gap large enough", COL_RED);
         return;
@@ -1637,6 +1670,17 @@ void Shell::ptResize(const char* args) {
             return;
         }
 
+        if (_pending[i].type == 0) {
+            uint32_t imgLen = appImageLen(_pending[i].offset, _pending[i].size);
+            if (imgLen > 0 && newSize < imgLen) {
+                char msg[48];
+                int minK = ((imgLen + 0xFFF) & ~0xFFF) / 1024;
+                snprintf(msg, sizeof(msg), "image inside is %dK, min", minK);
+                _con->print(msg, COL_RED);
+                return;
+            }
+        }
+
         _pending[i].size = newSize;
         _pendingDirty = true;
         char msg[48];
@@ -1650,6 +1694,11 @@ void Shell::ptResize(const char* args) {
 void Shell::ptWrite() {
     _con->print("only proceed if you know", COL_WARN);
     _con->print("what you are doing", COL_WARN);
+    if (!validatePending()) {
+        _con->print("write aborted", COL_RED);
+        return;
+    }
+
     _con->print("writing partition table...", COL_WARN);
     _con->redraw();
 
@@ -1686,7 +1735,14 @@ void Shell::ptWrite() {
     table[offset + 1] = 0xEB;
     memcpy(&table[offset + 16], hash, 16);
 
-    esp_err_t err = esp_flash_erase_region(NULL, 0x8000, 0x1000);
+    static esp_flash_os_functions_t ptOsFunc;
+    static esp_flash_t ptChip;
+    ptChip = *esp_flash_default_chip;
+    ptOsFunc = *esp_flash_default_chip->os_func;
+    ptOsFunc.region_protected = NULL;
+    ptChip.os_func = &ptOsFunc;
+
+    esp_err_t err = esp_flash_erase_region(&ptChip, 0x8000, 0x1000);
     if (err != ESP_OK) {
         char msg[48];
         snprintf(msg, sizeof(msg), "erase: %s", esp_err_to_name(err));
@@ -1694,7 +1750,7 @@ void Shell::ptWrite() {
         return;
     }
 
-    err = esp_flash_write(NULL, table, 0x8000, 0x1000);
+    err = esp_flash_write(&ptChip, table, 0x8000, 0x1000);
     if (err != ESP_OK) {
         char msg[48];
         snprintf(msg, sizeof(msg), "write: %s", esp_err_to_name(err));
