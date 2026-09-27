@@ -1160,7 +1160,7 @@ static rmt_data_t irBuf[512];
 static bool irBegin() {
     if (irReady) return true;
     if (!rmtInit(IR_TX_PIN, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_2, 1000000)) return false;
-    rmtSetCarrier(IR_TX_PIN, true, true, 38000, 0.33);
+    rmtSetCarrier(IR_TX_PIN, true, false, 38000, 0.33);
     irReady = true;
     return true;
 }
@@ -1174,7 +1174,7 @@ static int irSym(int n, uint32_t mark, uint32_t space) {
 }
 
 static bool irFrame(int n) {
-    return rmtWrite(IR_TX_PIN, irBuf, n, 500);
+    return rmtWrite(IR_TX_PIN, irBuf, n, 1000);
 }
 
 static bool irSendNecLike(uint32_t code, int bits, uint32_t hdrMark, uint32_t hdrSpace) {
@@ -1325,9 +1325,9 @@ static bool irSendRawData(const char* data, uint32_t freq, float duty) {
     if (n == 0) return false;
     if (freq < 20000 || freq > 60000) freq = 38000;
     if (duty <= 0.05f || duty >= 0.95f) duty = 0.33f;
-    rmtSetCarrier(IR_TX_PIN, true, true, freq, duty);
+    rmtSetCarrier(IR_TX_PIN, true, false, freq, duty);
     bool ok = irFrame(n);
-    rmtSetCarrier(IR_TX_PIN, true, true, 38000, 0.33);
+    rmtSetCarrier(IR_TX_PIN, true, false, 38000, 0.33);
     return ok;
 }
 
