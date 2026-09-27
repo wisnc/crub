@@ -59,6 +59,11 @@ private:
     void cmdSdInit();
     void cmdColor(const char* args);
     void cmdBg(const char* args);
+    void cmdIr(const char* args);
+    bool irTransmit(const char* proto, uint32_t code, int bits);
+    bool irLookup(const char* name, char* proto, char* arg1, char* arg2);
+    bool irSendFromFile(const char* path, const char* entry);
+    void irWriteTemplate();
     void cmdHistory();
     void cmdFetch(const char* args);
     void cmdWaits(const char* args);

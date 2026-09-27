@@ -5,6 +5,7 @@
 
 #include "shell.h"
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
@@ -15,6 +16,10 @@
 #include "USBMSC.h"
 #include <Preferences.h>
 #include <esp_mac.h>
+#include "esp32-hal-rmt.h"
+
+#define IR_PATH "/.crub/ir"
+#define IR_TX_PIN 44
 
 static const char* subtypeName(uint8_t type, uint8_t subtype) {
     if (type == ESP_PARTITION_TYPE_APP) {
@@ -273,6 +278,7 @@ void Shell::process(const char* cmdLine) {
     else if (strcmp(cmd, "sd") == 0)       cmdSdInit();
     else if (strcmp(cmd, "color") == 0)    cmdColor(args);
     else if (strcmp(cmd, "bg") == 0)       cmdBg(args);
+    else if (strcmp(cmd, "ir") == 0)       cmdIr(args);
     else if (strcmp(cmd, "history") == 0)  cmdHistory();
     else if (strcmp(cmd, "clear") == 0)    cmdClear();
     else if (strcmp(cmd, "flash") == 0)    cmdFlash(args);
@@ -472,7 +478,7 @@ void Shell::cmdHelp() {
     _con->print(" pt info [file]", COL_INFO);
     _con->print(" pt create <l> <type> <K>", COL_INFO);
     _con->print(" pt delete/resize <label>", COL_INFO);
-    _con->print(" pt write yes / pt reset", COL_INFO);
+    _con->print(" pt write / pt reset", COL_INFO);
     _con->print("script:", COL_INFO);
     _con->print(" run echo # comment", COL_INFO);
     _con->print(" sleep waits waitms", COL_INFO);
@@ -483,6 +489,7 @@ void Shell::cmdHelp() {
     _con->print(" bright <0-255> sd", COL_INFO);
     _con->print(" color <role> <hex>", COL_INFO);
     _con->print(" bg <bmp|none|blur|trans>", COL_INFO);
+    _con->print(" ir <send|raw|file|add|del|list>", COL_INFO);
     _con->print(" history", COL_INFO);
     _con->print("fetch cfg:", COL_INFO);
     _con->print(" fetch fields <list>", COL_INFO);
@@ -972,6 +979,7 @@ void Shell::cmdCrub(const char* args) {
             if (bf) { bf.println("boots 1500"); bf.println("fetch"); bf.close(); }
             _con->print("created boot", COL_DIM);
         }
+        if (!SD.exists(IR_PATH)) { irWriteTemplate(); _con->print("created ir", COL_DIM); }
 
         loadAliases();
         loadTheme();
@@ -1143,6 +1151,399 @@ void Shell::cmdSdInit() {
     } else {
         _con->print("SD: not found", COL_RED);
     }
+}
+
+
+static bool irReady = false;
+static rmt_data_t irBuf[512];
+
+static bool irBegin() {
+    if (irReady) return true;
+    if (!rmtInit(IR_TX_PIN, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_2, 1000000)) return false;
+    rmtSetCarrier(IR_TX_PIN, true, true, 38000, 0.33);
+    irReady = true;
+    return true;
+}
+
+static int irSym(int n, uint32_t mark, uint32_t space) {
+    irBuf[n].level0 = 1;
+    irBuf[n].duration0 = mark;
+    irBuf[n].level1 = 0;
+    irBuf[n].duration1 = space;
+    return n + 1;
+}
+
+static bool irFrame(int n) {
+    return rmtWrite(IR_TX_PIN, irBuf, n, 500);
+}
+
+static bool irSendNecLike(uint32_t code, int bits, uint32_t hdrMark, uint32_t hdrSpace) {
+    int n = irSym(0, hdrMark, hdrSpace);
+    for (int i = bits - 1; i >= 0; i--) {
+        bool one = (code >> i) & 1;
+        n = irSym(n, 560, one ? 1690 : 560);
+    }
+    n = irSym(n, 560, 20000);
+    return irFrame(n);
+}
+
+static bool irSendSony(uint32_t code, int bits) {
+    for (int rep = 0; rep < 3; rep++) {
+        int n = irSym(0, 2400, 600);
+        for (int i = bits - 1; i >= 0; i--) {
+            bool one = (code >> i) & 1;
+            n = irSym(n, one ? 1200 : 600, 600);
+        }
+        irBuf[n - 1].duration1 = 20000;
+        if (!irFrame(n)) return false;
+    }
+    return true;
+}
+
+bool Shell::irTransmit(const char* proto, uint32_t code, int bits) {
+    if (!irBegin()) return false;
+    if (strcmp(proto, "nec") == 0)     return irSendNecLike(code, bits, 9000, 4500);
+    if (strcmp(proto, "samsung") == 0) return irSendNecLike(code, bits, 4500, 4500);
+    if (strcmp(proto, "sony") == 0)    return irSendSony(code, bits);
+    return false;
+}
+
+static int irDefaultBits(const char* proto) {
+    if (strcmp(proto, "sony") == 0) return 12;
+    return 32;
+}
+
+static bool irProtoOk(const char* p) {
+    return strcmp(p, "nec") == 0 || strcmp(p, "samsung") == 0 || strcmp(p, "sony") == 0;
+}
+
+void Shell::irWriteTemplate() {
+    File f = SD.open(IR_PATH, FILE_WRITE);
+    if (!f) return;
+    f.println("# name protocol code [bits]");
+    f.println("# protocols: nec samsung sony");
+    f.close();
+}
+
+bool Shell::irLookup(const char* name, char* proto, char* arg1, char* arg2) {
+    File f = SD.open(IR_PATH, FILE_READ);
+    if (!f) return false;
+    bool found = false;
+    while (f.available() && !found) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0 || line[0] == '#') continue;
+        char nm[24], pr[12], a1[64], a2[24];
+        const char* rest = parseArg(line.c_str(), nm, sizeof(nm));
+        if (strcmp(nm, name) != 0) continue;
+        rest = parseArg(rest, pr, sizeof(pr));
+        rest = parseArg(rest, a1, sizeof(a1));
+        parseArg(rest, a2, sizeof(a2));
+        strncpy(proto, pr, 11); proto[11] = '\0';
+        strncpy(arg1, a1, 63); arg1[63] = '\0';
+        strncpy(arg2, a2, 23); arg2[23] = '\0';
+        found = true;
+    }
+    f.close();
+    return found;
+}
+
+static uint32_t revBits(uint32_t v, int n) {
+    uint32_t r = 0;
+    for (int i = 0; i < n; i++) {
+        r = (r << 1) | (v & 1);
+        v >>= 1;
+    }
+    return r;
+}
+
+static uint32_t irParseLeBytes(const char* str) {
+    uint32_t v = 0;
+    int shift = 0;
+    const char* p = str;
+    while (*p && shift < 32) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        char* end;
+        uint32_t b = strtoul(p, &end, 16) & 0xFF;
+        if (end == p) break;
+        v |= b << shift;
+        shift += 8;
+        p = end;
+    }
+    return v;
+}
+
+static bool irFlipperConvert(const char* fp, uint32_t addr, uint32_t cmd,
+                             char* proto, uint32_t* code, int* bits) {
+    if (strcasecmp(fp, "NEC") == 0) {
+        uint32_t a = addr & 0xFF, c = cmd & 0xFF;
+        *code = (revBits(a, 8) << 24) | (revBits(~a & 0xFF, 8) << 16) |
+                (revBits(c, 8) << 8) | revBits(~c & 0xFF, 8);
+        strcpy(proto, "nec"); *bits = 32; return true;
+    }
+    if (strcasecmp(fp, "NECext") == 0) {
+        *code = (revBits(addr & 0xFF, 8) << 24) | (revBits((addr >> 8) & 0xFF, 8) << 16) |
+                (revBits(cmd & 0xFF, 8) << 8) | revBits((cmd >> 8) & 0xFF, 8);
+        strcpy(proto, "nec"); *bits = 32; return true;
+    }
+    if (strcasecmp(fp, "Samsung32") == 0) {
+        uint32_t a = addr & 0xFF, c = cmd & 0xFF;
+        *code = (revBits(a, 8) << 24) | (revBits(a, 8) << 16) |
+                (revBits(c, 8) << 8) | revBits(~c & 0xFF, 8);
+        strcpy(proto, "samsung"); *bits = 32; return true;
+    }
+    int ab = 0;
+    if (strcasecmp(fp, "SIRC") == 0) ab = 5;
+    else if (strcasecmp(fp, "SIRC15") == 0) ab = 8;
+    else if (strcasecmp(fp, "SIRC20") == 0) ab = 13;
+    if (ab) {
+        *code = (revBits(cmd & 0x7F, 7) << ab) | revBits(addr & ((1u << ab) - 1), ab);
+        strcpy(proto, "sony"); *bits = 7 + ab; return true;
+    }
+    return false;
+}
+
+static bool irSendRawData(const char* data, uint32_t freq, float duty) {
+    if (!irBegin()) return false;
+    int n = 0;
+    const char* p = data;
+    uint32_t pending = 0;
+    bool haveMark = false;
+    while (*p && n < 511) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        char* end;
+        uint32_t d = strtoul(p, &end, 10);
+        if (end == p) break;
+        p = end;
+        if (d > 32767) d = 32767;
+        if (!haveMark) { pending = d; haveMark = true; }
+        else { n = irSym(n, pending, d); haveMark = false; }
+    }
+    if (haveMark) n = irSym(n, pending, 20000);
+    if (n == 0) return false;
+    if (freq < 20000 || freq > 60000) freq = 38000;
+    if (duty <= 0.05f || duty >= 0.95f) duty = 0.33f;
+    rmtSetCarrier(IR_TX_PIN, true, true, freq, duty);
+    bool ok = irFrame(n);
+    rmtSetCarrier(IR_TX_PIN, true, true, 38000, 0.33);
+    return ok;
+}
+
+bool Shell::irSendFromFile(const char* path, const char* entry) {
+    File f = SD.open(path, FILE_READ);
+    if (!f) { _con->print("file not found", COL_RED); return false; }
+
+    bool listing = (entry == nullptr || entry[0] == '\0');
+    bool inTarget = false, found = false;
+    String fproto, faddr, fcmd, fdata;
+    String ftype;
+    uint32_t freq = 38000;
+    float duty = 0.33f;
+    int count = 0;
+
+    auto flush = [&]() -> bool {
+        if (!inTarget) return true;
+        inTarget = false;
+        found = true;
+        if (ftype == "raw") {
+            if (!irSendRawData(fdata.c_str(), freq, duty)) { _con->print("ir send failed", COL_RED); return false; }
+            _con->print("sent (raw)", COL_OK);
+            return true;
+        }
+        char proto[12]; uint32_t code; int bits;
+        if (!irFlipperConvert(fproto.c_str(), irParseLeBytes(faddr.c_str()),
+                              irParseLeBytes(fcmd.c_str()), proto, &code, &bits)) {
+            char msg[48];
+            snprintf(msg, sizeof(msg), "unsupported: %s", fproto.c_str());
+            _con->print(msg, COL_RED);
+            return false;
+        }
+        if (!irTransmit(proto, code, bits)) { _con->print("ir send failed", COL_RED); return false; }
+        char msg[48];
+        snprintf(msg, sizeof(msg), "sent (%s %lX)", proto, (unsigned long)code);
+        _con->print(msg, COL_OK);
+        return true;
+    };
+
+    bool ok = true;
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0 || line[0] == '#') continue;
+        int sep = line.indexOf(':');
+        if (sep < 0) continue;
+        String key = line.substring(0, sep);
+        String val = line.substring(sep + 1);
+        key.trim(); val.trim();
+        if (key == "name") {
+            ok = flush() && ok;
+            if (listing) { _con->print(val.c_str(), COL_INFO); count++; }
+            else if (strcasecmp(val.c_str(), entry) == 0) {
+                inTarget = true;
+                fproto = ""; faddr = ""; fcmd = ""; fdata = ""; ftype = "";
+                freq = 38000; duty = 0.33f;
+            }
+            continue;
+        }
+        if (!inTarget) continue;
+        if (key == "type") ftype = val;
+        else if (key == "protocol") fproto = val;
+        else if (key == "address") faddr = val;
+        else if (key == "command") fcmd = val;
+        else if (key == "frequency") freq = val.toInt();
+        else if (key == "duty_cycle") duty = val.toFloat();
+        else if (key == "data") fdata = val;
+    }
+    ok = flush() && ok;
+    f.close();
+
+    if (listing) {
+        if (count == 0) _con->print("no entries", COL_DIM);
+        return count > 0;
+    }
+    if (!found) { _con->print("no such entry in file", COL_RED); return false; }
+    return ok;
+}
+
+void Shell::cmdIr(const char* args) {
+    char sub[24];
+    const char* rest = parseArg(args, sub, sizeof(sub));
+
+    if (strcmp(sub, "list") == 0) {
+        File f = SD.open(IR_PATH, FILE_READ);
+        if (!f) { _con->print("no ir file, use ir add", COL_DIM); return; }
+        int count = 0;
+        while (f.available()) {
+            String line = f.readStringUntil('\n');
+            line.trim();
+            if (line.length() == 0 || line[0] == '#') continue;
+            _con->print(line.c_str(), COL_INFO);
+            count++;
+        }
+        f.close();
+        if (count == 0) _con->print("no codes yet", COL_DIM);
+        return;
+    }
+
+    if (strcmp(sub, "send") == 0) {
+        char name[24];
+        parseArg(rest, name, sizeof(name));
+        if (name[0] == '\0') { _con->print("ir send <name>", COL_RED); return; }
+        char proto[12], a1[64], a2[24];
+        if (!irLookup(name, proto, a1, a2)) { _con->print("unknown code name", COL_RED); return; }
+        if (strcmp(proto, "file") == 0) {
+            char path[256];
+            resolvePath(a1, path, sizeof(path));
+            irSendFromFile(path, a2);
+            return;
+        }
+        if (!irProtoOk(proto)) { _con->print("bad protocol in ir file", COL_RED); return; }
+        uint32_t code = strtoul(a1, nullptr, 16);
+        int bits = a2[0] ? atoi(a2) : irDefaultBits(proto);
+        char msg[48];
+        if (irTransmit(proto, code, bits)) {
+            snprintf(msg, sizeof(msg), "sent %s (%s %lX)", name, proto, (unsigned long)code);
+            _con->print(msg, COL_OK);
+        } else {
+            _con->print("ir send failed", COL_RED);
+        }
+        return;
+    }
+
+    if (strcmp(sub, "raw") == 0) {
+        char proto[12], cd[16], bt[8];
+        rest = parseArg(rest, proto, sizeof(proto));
+        rest = parseArg(rest, cd, sizeof(cd));
+        parseArg(rest, bt, sizeof(bt));
+        if (!irProtoOk(proto) || cd[0] == '\0') { _con->print("ir raw <nec|samsung|sony> <hex> [bits]", COL_RED); return; }
+        uint32_t code = strtoul(cd, nullptr, 16);
+        int bits = bt[0] ? atoi(bt) : irDefaultBits(proto);
+        if (bits < 8 || bits > 32) { _con->print("bits 8-32", COL_RED); return; }
+        bool ok = irTransmit(proto, code, bits);
+        _con->print(ok ? "sent" : "ir send failed", ok ? COL_OK : COL_RED);
+        return;
+    }
+
+    if (strcmp(sub, "file") == 0) {
+        char fp[64], entry[24];
+        rest = parseArg(rest, fp, sizeof(fp));
+        parseArg(rest, entry, sizeof(entry));
+        if (fp[0] == '\0') { _con->print("ir file <path.ir> [entry]", COL_RED); return; }
+        char path[256];
+        resolvePath(fp, path, sizeof(path));
+        irSendFromFile(path, entry);
+        return;
+    }
+
+    if (strcmp(sub, "add") == 0) {
+        char name[24], proto[12], cd[64], bt[24];
+        rest = parseArg(rest, name, sizeof(name));
+        rest = parseArg(rest, proto, sizeof(proto));
+        rest = parseArg(rest, cd, sizeof(cd));
+        parseArg(rest, bt, sizeof(bt));
+        bool isFile = (strcmp(proto, "file") == 0);
+        if (name[0] == '\0' || (!irProtoOk(proto) && !isFile) || cd[0] == '\0' || (isFile && bt[0] == '\0')) {
+            _con->print("ir add <name> <proto> <hex> [bits]", COL_RED);
+            _con->print("ir add <name> file <path.ir> <entry>", COL_RED);
+            return;
+        }
+        char d1[12], d2[64], d3[24];
+        if (irLookup(name, d1, d2, d3)) { _con->print("name exists, ir del first", COL_RED); return; }
+        File f = SD.open(IR_PATH, FILE_APPEND);
+        if (!f) { _con->print("cannot write ir file", COL_RED); return; }
+        char line[128];
+        if (isFile) snprintf(line, sizeof(line), "%s file %s %s", name, cd, bt);
+        else if (bt[0]) snprintf(line, sizeof(line), "%s %s %s %d", name, proto, cd, atoi(bt));
+        else snprintf(line, sizeof(line), "%s %s %s", name, proto, cd);
+        f.println(line);
+        f.close();
+        char msg[48];
+        snprintf(msg, sizeof(msg), "added %s", name);
+        _con->print(msg, COL_OK);
+        return;
+    }
+
+    if (strcmp(sub, "del") == 0) {
+        char name[24];
+        parseArg(rest, name, sizeof(name));
+        if (name[0] == '\0') { _con->print("ir del <name>", COL_RED); return; }
+        File f = SD.open(IR_PATH, FILE_READ);
+        if (!f) { _con->print("no ir file", COL_DIM); return; }
+        String keep;
+        bool removed = false;
+        while (f.available()) {
+            String line = f.readStringUntil('\n');
+            line.trim();
+            if (line.length() == 0) continue;
+            char nm[24];
+            parseArg(line.c_str(), nm, sizeof(nm));
+            if (line[0] != '#' && strcmp(nm, name) == 0) { removed = true; continue; }
+            keep += line;
+            keep += '\n';
+        }
+        f.close();
+        if (!removed) { _con->print("unknown code name", COL_RED); return; }
+        File w = SD.open(IR_PATH, FILE_WRITE);
+        if (!w) { _con->print("cannot write ir file", COL_RED); return; }
+        w.print(keep);
+        w.close();
+        char msg[48];
+        snprintf(msg, sizeof(msg), "removed %s", name);
+        _con->print(msg, COL_OK);
+        return;
+    }
+
+    _con->print("ir send <name>", COL_INFO);
+    _con->print("ir raw <proto> <hex> [bits]", COL_INFO);
+    _con->print("ir file <path.ir> [entry]", COL_INFO);
+    _con->print("ir add <name> <proto> <hex> [bits]", COL_INFO);
+    _con->print("ir add <name> file <path.ir> <entry>", COL_INFO);
+    _con->print("ir del <name>", COL_INFO);
+    _con->print("ir list", COL_INFO);
+    _con->print("nec samsung sony, or flipper .ir", COL_DIM);
+    _con->print("file: " IR_PATH, COL_DIM);
 }
 
 void Shell::cmdBg(const char* args) {
@@ -1426,19 +1827,14 @@ void Shell::cmdPt(const char* args) {
     else if (strcmp(sub, "create") == 0) ptCreate(rest);
     else if (strcmp(sub, "delete") == 0) ptDelete(rest);
     else if (strcmp(sub, "resize") == 0) ptResize(rest);
-    else if (strcmp(sub, "write") == 0) {
-        char confirm[8];
-        parseArg(rest, confirm, sizeof(confirm));
-        if (strcmp(confirm, "yes") == 0) ptWrite();
-        else _con->print("usage: pt write yes", COL_RED);
-    }
+    else if (strcmp(sub, "write") == 0) ptWrite();
     else if (strcmp(sub, "reset") == 0) ptReset();
     else {
         _con->print("pt info [file]", COL_INFO);
         _con->print("pt create <l> <type> <K>", COL_INFO);
         _con->print("pt delete <label>", COL_INFO);
         _con->print("pt resize <label> <K>", COL_INFO);
-        _con->print("pt write yes", COL_INFO);
+        _con->print("pt write", COL_INFO);
         _con->print("pt reset", COL_INFO);
         _con->print("types: app fat spiffs nvs", COL_DIM);
     }
@@ -2112,7 +2508,6 @@ void Shell::cmdLaunch(const char* args) {
         char msg[48];
         snprintf(msg, sizeof(msg), "launching %s...", target->label);
         _con->print(msg, COL_WARN);
-        _con->print("reset btn = back here", COL_DIM);
         _con->redraw();
         delay(800);
     }
