@@ -127,7 +127,7 @@ ffmpeg -i input.png -vf "scale=240:135:force_original_aspect_ratio=increase:flag
 
 ### ir blaster
 
-the cardputer has an ir transmitter on the top edge. crub can fire saved codes at your tv, soundbar, or lights
+the cardputer has an ir transmitter on the top edge. crub can fire raw codes or from SD
 
 ```
 ir add tv nec <hex>
@@ -135,23 +135,14 @@ ir send tv
 ir raw samsung <hex>
 ir list
 ir del tv
-```
-
-protocols are `nec`, `samsung`, and `sony`. codes are hex in the same form IRremoteESP8266 and most online code tables use, the bits as transmitted with the first one leftmost. nec and samsung are 32 bit, sony defaults to 12 and takes a bits argument for 15 or 20 bit remotes
-
-codes live in `/.crub/ir`, one per line as `name protocol code [bits]`, lines starting with `#` are ignored. edit it with the editor or use `ir add`. it works from scripts too, so `ir send tv` in `/.crub/boot` turns the tv on with the cardputer
-
-there is no ir receiver, so codes cannot be learned from an existing remote. look them up on irdb or lirc, or read them with a phone app
-
-flipper zero `.ir` files work directly, the ones from flipper-irdb and the community remote packs
-
-```
 ir file /ir/tcl.ir
 ir file /ir/tcl.ir Power
 ir add tvpower file /ir/tcl.ir Power
 ```
 
-without an entry name it lists what the file contains. `ir add <name> file <path> <entry>` saves a shortcut so `ir send tvpower` fires it. parsed entries with NEC, NECext, Samsung32, SIRC, SIRC15, and SIRC20 are converted, and `type: raw` entries are replayed as-is with their own frequency and duty cycle, so any remote that was captured raw works. other parsed protocols report as unsupported
+protocols are `nec`, `samsung`, and `sony`. codes are hex in the same form IRremoteESP8266 and most online code tables use, the bits as transmitted with the first one leftmost. nec and samsung are 32 bit, sony defaults to 12 and takes a bits argument for 15 or 20 bit remotes
+
+saved codes can be found in `/.crub/ir`,
 
 ### usbsd
 
@@ -277,10 +268,9 @@ your imagination and 8MB is your limit with app combinations!
 
 ### 3.1.0
 
-- ir blaster. `ir add`, `ir send`, `ir raw`, `ir del`, `ir list`. nec, samsung and sony over the built in ir led, codes saved in `/.crub/ir`
-- flipper zero `.ir` files supported with `ir file <path> [entry]`, parsed NEC, NECext, Samsung32, SIRC variants plus raw captures
-- `pt write` no longer needs `yes`. the pending table is validated before anything touches flash
-- removed the "reset btn = back here" line from `launch`
+- ir blaster. `ir add`, `ir send`, `ir raw`, `ir del`, `ir list`. nec, samsung and sony protocol, codes saved in `/.crub/ir`
+- `pt write` no longer needs `yes`
+
 
 ### 3.0.0
 
