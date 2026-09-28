@@ -23,6 +23,11 @@ public:
 private:
     Console* _con;
     char _cwd[256];
+    enum { LS_NONE = 0, LS_NAME = 1, LS_DATE = 2 };
+    int _lsSort = LS_NONE;
+    void loadConfig();
+    void saveConfig();
+    void cmdConfig(const char* args);
 
     void resolvePath(const char* input, char* out, int outSize);
 
@@ -60,9 +65,20 @@ private:
     void cmdColor(const char* args);
     void cmdBg(const char* args);
     void cmdIr(const char* args);
+    struct IrEntry {
+        bool raw;
+        char proto[12];
+        uint32_t code;
+        int bits;
+        uint32_t freq;
+        float duty;
+        String data;
+    };
     bool irTransmit(const char* proto, uint32_t code, int bits);
-    bool irLookup(const char* name, char* proto, char* arg1, char* arg2);
-    bool irSendFromFile(const char* path, const char* entry);
+    bool irLookup(const char* name, String& rest);
+    bool irReadEntry(const char* path, const char* entry, IrEntry* out);
+    bool irSendEntry(const IrEntry& e);
+    void irListFile(const char* path);
     void irWriteTemplate();
     void cmdHistory();
     void cmdFetch(const char* args);

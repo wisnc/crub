@@ -142,7 +142,9 @@ ir add tvpower file /ir/tcl.ir Power
 
 protocols are `nec`, `samsung`, and `sony`. codes are hex in the same form IRremoteESP8266 and most online code tables use, the bits as transmitted with the first one leftmost. nec and samsung are 32 bit, sony defaults to 12 and takes a bits argument for 15 or 20 bit remotes
 
-saved codes can be found in `/.crub/ir`,
+`ir file` reads flipper zero .ir files. `ir add <name> file <path> <entry>` copies the code into `/.crub/ir` so the .ir file is not needed after
+
+saved codes can be found in `/.crub/ir`
 
 ### usbsd
 
@@ -172,6 +174,14 @@ fetch edit
 ```
 
 `fetch logo reset` restores the built in logo. fetch config lives in `/.crub/`
+
+### config
+
+general settings live in `/.crub/config`
+
+right now only `lssort` key exists.
+
+`lssort` sorts `ls`. `name` is alphabetical, `date` is newest first, both with folders first. `none` is the raw order from the card.
 
 ### crub fix
 
@@ -227,6 +237,18 @@ commands can be viewed with `help`
 
 display can also be controlled with `bright <0-255>`, Fn + _ and Fn + = for dimmer and brighter display. also Btn0 toggles display to save battery
 
+### console keys
+
+`Fn + ; .` browse command history
+
+`Fn + , /` move the cursor
+
+`Ctrl + ; .` scroll the console
+
+`Ctrl + C` abort the current line
+
+the prompt shows the current directory, `/binaries > _`
+
 ### editor
 
 `edit (filename)` to enter nano-like editor
@@ -260,7 +282,7 @@ crub can now create new partitions, resize and delete existing partitions. This 
 
 your imagination and 8MB is your limit with app combinations! 
 
-!!! make sure your app partition sizes are divisible by 64kb !!!
+app partitions are placed on 64kb boundaries automatically and `pt write` refuses a table that would not boot
 
 ---
 
@@ -270,12 +292,15 @@ your imagination and 8MB is your limit with app combinations!
 
 - ir blaster. `ir add`, `ir send`, `ir raw`, `ir del`, `ir list`. nec, samsung and sony protocol, codes saved in `/.crub/ir`
 - `pt write` no longer needs `yes`
+- `config lssort name|date|none` sorts `ls`. settings file at `/.crub/config`
+- `ir add <name> file <path> <entry>` copies the code out of a flipper .ir file
 
 
 ### 3.0.0
 
 - multiple firmwares now supported!
 - pt create/resize/delete fixed
+- ctrl+c, history and cursor keys on the console, prompt shows the current directory
 
 ### 2.9.0
 
